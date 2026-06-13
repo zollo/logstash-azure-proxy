@@ -1,0 +1,12 @@
+# Local environment / secrets
+.env
+.env.local
+*.local
+
+# Logstash runtime data
+data/
+queue/
+
+# OS / editor cruft
+.DS_Store
+*.swp

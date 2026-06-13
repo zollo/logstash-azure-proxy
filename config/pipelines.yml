@@ -1,0 +1,4 @@
+# Pipeline definitions.  The persistent queue settings are inherited from
+# logstash.yml; per-pipeline overrides could be added here if needed.
+- pipeline.id: main
+  path.config: "/usr/share/logstash/pipeline/logstash.conf"
