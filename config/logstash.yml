@@ -1,0 +1,31 @@
+# ---------------------------------------------------------------------------
+# logstash.yml
+#
+# Environment-variable references use the ${VAR:default} syntax, so every value
+# below falls back to a sensible default when the variable is not supplied to
+# the container.
+# ---------------------------------------------------------------------------
+
+node.name: "${LS_NODE_NAME:logstash-azure-proxy}"
+
+# Bind the monitoring / metrics HTTP API to all interfaces so health checks and
+# external monitoring can reach it.
+api.http.host: "0.0.0.0"
+api.http.port: 9600
+
+# The Azure Log Analytics output plugin recommends disabling ECS on Logstash 8.
+pipeline.ecs_compatibility: disabled
+
+# ---------------------------------------------------------------------------
+# Persistent Queues
+#
+#   path.queue       -> override with the LS_QUEUE_PATH env var
+#   queue.max_bytes  -> override with the LS_QUEUE_MAX_BYTES env var
+# ---------------------------------------------------------------------------
+queue.type: persisted
+path.queue: "${LS_QUEUE_PATH:/var/lib/logstash/queue}"
+queue.max_bytes: "${LS_QUEUE_MAX_BYTES:60gb}"
+
+# Flush the durable write-ahead checkpoint on every write for maximum
+# durability of the persistent queue.
+queue.checkpoint.writes: 1
