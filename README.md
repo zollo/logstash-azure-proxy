@@ -76,7 +76,7 @@ dynamic CPU/memory allocation and mounted volumes for the queue and config.
 | `LS_MEM_RESERVATION` | `2g`    | Reserved memory                           |
 | `LS_QUEUE_PATH`      | `/var/lib/logstash/queue` | Persistent queue location |
 | `LS_QUEUE_MAX_BYTES` | `60gb`  | Max persistent queue size                 |
-| `HTTP_PORT`          | `8080`  | HTTP input listen port                    |
+| `HTTP_INPUT_PORT`    | `8080`  | HTTP input listen port                    |
 | `API_PORT`           | `9600`  | Logstash monitoring API port              |
 | `AZURE_WORKSPACE_ID` | —       | **Required** — Log Analytics workspace ID |
 | `AZURE_WORKSPACE_KEY`| —       | **Required** — Log Analytics primary key  |

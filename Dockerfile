@@ -35,7 +35,7 @@ ENV LS_JAVA_OPTS="-XX:InitialRAMPercentage=75 -XX:MinRAMPercentage=75 -XX:MaxRAM
 # are overridable at runtime via environment variables.
 ENV LS_QUEUE_PATH=/var/lib/logstash/queue \
     LS_QUEUE_MAX_BYTES=60gb \
-    HTTP_PORT=8080
+    HTTP_INPUT_PORT=8080
 
 # ---------------------------------------------------------------------------
 # Pre-built configuration
