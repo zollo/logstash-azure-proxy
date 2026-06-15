@@ -1,0 +1,22 @@
+{
+    "class": "Telemetry",
+    "controls": {
+        "class": "Controls",
+        "logLevel": "info"
+    },
+    "My_System": {
+        "class": "Telemetry_System",
+        "systemPoller": {
+            "interval": 60
+        }
+    },
+    "Logstash_Buffer_Consumer": {
+        "class": "Telemetry_Consumer",
+        "type": "Generic_HTTP",
+        "host": "10.0.x.x",
+        "protocol": "http",
+        "port": 8080,
+        "path": "/",
+        "method": "POST"
+    }
+}

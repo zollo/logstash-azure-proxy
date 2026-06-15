@@ -95,6 +95,55 @@ dynamic CPU/memory allocation and mounted volumes for the queue and config.
 docker build -t logstash-azure-proxy:dev --build-arg LOGSTASH_VERSION=8.11.4 .
 ```
 
+## Logstash as a "Shock Absorber"
+
+```
+[ F5 LTM Appliance ] --(Unregulated Bursts)--> [ Logstash HTTP Input ]
+                                                        |
+                                            (Immediate Flush to Disk)
+                                                        |
+                                            [ Persistent Queue (PQ) ]
+                                                        |
+                                            (Regulated, Batched Flow)
+                                                        |
+                                         [ Microsoft Azure Output Plugin ]
+                                                        |
+                                          (Throttled API Calls / Retries)
+                                                        |
+                                         [ Azure Log Analytics Workspace ]
+```
+
+When Azure reaches its ingestion limit or throttles connections, the Microsoft output plugin tells the Logstash pipeline, "Stop sending, I am backed up." Logstash immediately responds by stopping the output flow, but the HTTP Input continues to accept incoming bursts from the F5. Those spikes safely pool inside the `/var/lib/logstash/queue` directory on disk. Once Azure stops throttling, Logstash drains the disk queue at a controlled pace until it catches up.
+
+## F5 Telemetry Streaming Integration
+
+To finish the link, you will POST this JSON declaration to your F5 `https://<BIG-IP-IP>/mgmt/shared/telemetry/declare` endpoint. It tells the F5 to hand over all telemetry to your new local Logstash buffer using the Generic_HTTP consumer class.
+
+```json
+{
+    "class": "Telemetry",
+    "controls": {
+        "class": "Controls",
+        "logLevel": "info"
+    },
+    "My_System": {
+        "class": "Telemetry_System",
+        "systemPoller": {
+            "interval": 60
+        }
+    },
+    "Logstash_Buffer_Consumer": {
+        "class": "Telemetry_Consumer",
+        "type": "Generic_HTTP",
+        "host": "10.0.x.x",
+        "protocol": "http",
+        "port": 8080,
+        "path": "/",
+        "method": "POST"
+    }
+}
+```
+
 ## Notes
 
 - The plugin recommends disabling ECS on Logstash 8, so
