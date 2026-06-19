@@ -1,0 +1,17 @@
+{
+  "event_source": "request_logging",
+  "event_timestamp": "2026-06-19T18:22:11.000Z",
+  "hostname": "bigip1.example.com",
+  "client_ip": "203.0.113.45",
+  "client_port": "49231",
+  "server_ip": "10.0.2.10",
+  "server_port": "443",
+  "http_method": "GET",
+  "http_uri": "/api/v1/orders",
+  "virtual_name": "/Common/app.app/app_vs",
+  "response_code": "200",
+  "response_ms": "37",
+  "response_size": "1842",
+  "protocol": "HTTPS",
+  "telemetryEventCategory": "LTM"
+}

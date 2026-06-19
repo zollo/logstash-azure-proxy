@@ -1,4 +1,6 @@
-# Pipeline definitions.  The persistent queue settings are inherited from
-# logstash.yml; per-pipeline overrides could be added here if needed.
-- pipeline.id: main
-  path.config: "/usr/share/logstash/pipeline/logstash.conf"
+# Pipeline definitions. The single `f5-telemetry` pipeline is assembled from
+# the ordered, modular *.conf files in pipeline/ (input -> classify -> per-module
+# parsing -> finalize -> output). The persistent queue settings are inherited
+# from logstash.yml.
+- pipeline.id: f5-telemetry
+  path.config: "/usr/share/logstash/pipeline/*.conf"
