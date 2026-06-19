@@ -4,12 +4,19 @@
         "class": "Controls",
         "logLevel": "info"
     },
+
     "My_System": {
         "class": "Telemetry_System",
         "systemPoller": {
             "interval": 60
         }
     },
+
+    "My_Listener": {
+        "class": "Telemetry_Listener",
+        "port": 6514
+    },
+
     "Logstash_Buffer_Consumer": {
         "class": "Telemetry_Consumer",
         "type": "Generic_HTTP",
@@ -17,6 +24,7 @@
         "protocol": "http",
         "port": 8080,
         "path": "/",
-        "method": "POST"
+        "method": "POST",
+        "outputMode": "processed"
     }
 }
