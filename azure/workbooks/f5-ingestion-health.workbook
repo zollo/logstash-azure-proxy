@@ -1,0 +1,173 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# F5 Telemetry — Ingestion & Pipeline Health (SRE)\n\nOperational view of the `logstash-azure-proxy` → **Azure Log Analytics** data path. This is the companion dashboard for the **low-ingestion / no-data alerts**.\n\n- **Freshness** — minutes since the last event landed in each table (is data still flowing?)\n- **Volume** — ingestion rate per F5 table, with a baseline comparison\n- **Ingestion latency** — lag between event time and the time Azure indexed it (proxy queue backlog / Azure throttling)\n- **Fleet** — which BIG-IP devices are reporting, and their failover state\n\nWhen an alert fires, start here to tell *\"data stopped\"* apart from *\"data is late.\"*"
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "p-time",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": { "durationMs": 14400000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 1800000 },
+                { "durationMs": 3600000 },
+                { "durationMs": 14400000 },
+                { "durationMs": 43200000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 259200000 }
+              ],
+              "allowCustom": true
+            }
+          },
+          {
+            "id": "p-stale",
+            "version": "KqlParameterItem/1.0",
+            "name": "StaleMinutes",
+            "label": "Stale threshold (min)",
+            "type": 1,
+            "isRequired": true,
+            "value": "15"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System'),\n  (F5Telemetry_AFM_CL    | extend Table = 'AFM'),\n  (F5Telemetry_APM_CL    | extend Table = 'APM'),\n  (F5Telemetry_AVR_CL    | extend Table = 'AVR'),\n  (F5Telemetry_Event_CL  | extend Table = 'Event (fallback)')\n| summarize Events = count(), ['Last Seen'] = max(TimeGenerated) by Table\n| extend ['Minutes Since Last Event'] = round((now() - ['Last Seen']) / 1m, 1)\n| extend Status = iif(['Minutes Since Last Event'] > toreal('{StaleMinutes}'), '\\u26d4 STALE', '\\u2705 OK')\n| project Table, Status, ['Minutes Since Last Event'], Events, ['Last Seen']\n| order by ['Minutes Since Last Event'] desc",
+        "size": 0,
+        "title": "Pipeline freshness — time since last event per table",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Status",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "icons",
+                "thresholdsGrid": [
+                  { "operator": "contains", "thresholdValue": "STALE", "representation": "failed", "text": "{0}" },
+                  { "operator": "Default", "thresholdValue": null, "representation": "success", "text": "{0}" }
+                ]
+              }
+            },
+            { "columnMatch": "Minutes Since Last Event", "formatter": 8, "formatOptions": { "palette": "redGreen" } },
+            { "columnMatch": "Last Seen", "formatter": 6 }
+          ]
+        }
+      },
+      "name": "freshness"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System'),\n  (F5Telemetry_AFM_CL    | extend Table = 'AFM'),\n  (F5Telemetry_APM_CL    | extend Table = 'APM'),\n  (F5Telemetry_AVR_CL    | extend Table = 'AVR'),\n  (F5Telemetry_Event_CL  | extend Table = 'Event (fallback)')\n| where TimeGenerated {TimeRange}\n| summarize Events = count() by bin(TimeGenerated, 5m), Table\n| render timechart",
+        "size": 0,
+        "title": "Ingestion volume by table",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "50",
+      "name": "volume-by-table"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System'),\n  (F5Telemetry_AFM_CL    | extend Table = 'AFM'),\n  (F5Telemetry_APM_CL    | extend Table = 'APM'),\n  (F5Telemetry_AVR_CL    | extend Table = 'AVR'),\n  (F5Telemetry_Event_CL  | extend Table = 'Event (fallback)')\n| where TimeGenerated {TimeRange}\n| extend LagSeconds = (ingestion_time() - TimeGenerated) / 1s\n| summarize ['p50 Lag (s)'] = percentile(LagSeconds, 50), ['p95 Lag (s)'] = percentile(LagSeconds, 95) by bin(TimeGenerated, 5m)\n| render timechart",
+        "size": 0,
+        "title": "Ingestion latency — event time vs. indexed time",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "50",
+      "name": "ingestion-latency"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "let current = toscalar(\n    union isfuzzy=true (F5Telemetry_LTM_CL), (F5Telemetry_ASM_CL), (F5Telemetry_System_CL)\n    | where TimeGenerated > ago(1h)\n    | count);\nlet baseline = toscalar(\n    union isfuzzy=true (F5Telemetry_LTM_CL), (F5Telemetry_ASM_CL), (F5Telemetry_System_CL)\n    | where TimeGenerated between (ago(25h) .. ago(1h))\n    | summarize Hourly = count() / 24.0\n    | project Hourly);\nprint ['Events (last 1h)'] = current,\n      ['Baseline / hr (prev 24h)'] = round(baseline, 0),\n      ['vs Baseline (%)'] = iif(baseline > 0, round(100.0 * current / baseline, 0), real(null))\n| evaluate narrow()",
+        "size": 4,
+        "title": "Throughput vs. 24h baseline (all event tables)",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Column", "formatter": 1 },
+          "leftContent": { "columnMatch": "Value", "formatter": 1, "formatOptions": { "palette": "blue" } },
+          "showBorder": true
+        }
+      },
+      "name": "baseline-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_System_CL\n| where TimeGenerated {TimeRange}\n| summarize arg_max(TimeGenerated, *) by f5_device_hostname_s\n| project ['BIG-IP Host'] = f5_device_hostname_s,\n          Version = f5_device_version_s,\n          Failover = f5_device_failoverStatus_s,\n          Sync = f5_device_syncStatus_s,\n          ['Last Poll'] = TimeGenerated,\n          ['Min Since Poll'] = round((now() - TimeGenerated) / 1m, 1)\n| order by ['Min Since Poll'] desc",
+        "size": 0,
+        "title": "BIG-IP fleet — last System Poller snapshot",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            {
+              "columnMatch": "Failover",
+              "formatter": 18,
+              "formatOptions": {
+                "thresholdsOptions": "colors",
+                "thresholdsGrid": [
+                  { "operator": "==", "thresholdValue": "ACTIVE", "representation": "green", "text": "{0}" },
+                  { "operator": "Default", "thresholdValue": null, "representation": "yellow", "text": "{0}" }
+                ]
+              }
+            },
+            { "columnMatch": "Last Poll", "formatter": 6 }
+          ]
+        }
+      },
+      "name": "fleet"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System')\n| where TimeGenerated {TimeRange}\n| extend Host = column_ifexists('f5_device_hostname_s', 'unknown')\n| summarize Events = count() by Host, Table\n| render barchart",
+        "size": 0,
+        "title": "Events per BIG-IP device",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart"
+      },
+      "name": "events-per-device"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

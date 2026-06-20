@@ -1,0 +1,210 @@
+{
+  "version": "Notebook/1.0",
+  "items": [
+    {
+      "type": 1,
+      "content": {
+        "json": "# F5 LTM — Traffic & Performance (SRE)\n\nGolden-signal view of **F5 BIG-IP LTM** request logs shipped by `logstash-azure-proxy` to the `F5Telemetry_LTM_CL` table.\n\n- **Traffic** — request rate by virtual server\n- **Latency** — p50 / p95 / p99 of `response_ms_d`\n- **Errors** — 4xx / 5xx rate\n- **Saturation** — throughput (bytes) per virtual server\n\nUse the filters below to scope by time, device, and virtual server."
+      },
+      "name": "title"
+    },
+    {
+      "type": 9,
+      "content": {
+        "version": "KqlParameterItem/1.0",
+        "parameters": [
+          {
+            "id": "p-time",
+            "version": "KqlParameterItem/1.0",
+            "name": "TimeRange",
+            "label": "Time range",
+            "type": 4,
+            "isRequired": true,
+            "value": { "durationMs": 86400000 },
+            "typeSettings": {
+              "selectableValues": [
+                { "durationMs": 1800000 },
+                { "durationMs": 3600000 },
+                { "durationMs": 14400000 },
+                { "durationMs": 43200000 },
+                { "durationMs": 86400000 },
+                { "durationMs": 259200000 },
+                { "durationMs": 604800000 }
+              ],
+              "allowCustom": true
+            }
+          },
+          {
+            "id": "p-host",
+            "version": "KqlParameterItem/1.0",
+            "name": "Hostname",
+            "label": "BIG-IP host",
+            "type": 2,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| summarize by f5_device_hostname_s\n| order by f5_device_hostname_s asc",
+            "value": [ "*" ],
+            "typeSettings": {
+              "additionalResourceOptions": [ "value::all" ],
+              "selectAllValue": "*",
+              "showDefault": false
+            },
+            "queryType": 0,
+            "resourceType": "microsoft.operationalinsights/workspaces"
+          },
+          {
+            "id": "p-vs",
+            "version": "KqlParameterItem/1.0",
+            "name": "VirtualServer",
+            "label": "Virtual server",
+            "type": 2,
+            "multiSelect": true,
+            "quote": "'",
+            "delimiter": ",",
+            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| summarize by virtual_name_s\n| order by virtual_name_s asc",
+            "value": [ "*" ],
+            "typeSettings": {
+              "additionalResourceOptions": [ "value::all" ],
+              "selectAllValue": "*",
+              "showDefault": false
+            },
+            "queryType": 0,
+            "resourceType": "microsoft.operationalinsights/workspaces"
+          }
+        ],
+        "style": "pills",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces"
+      },
+      "name": "parameters"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            ['Client Errors (4xx)'] = countif(response_code_d between (400 .. 499)),\n            ['Server Errors (5xx)'] = countif(response_code_d >= 500),\n            ['p95 Latency (ms)'] = round(percentile(response_ms_d, 95), 0),\n            ['Throughput (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n| extend ['Error Rate (%)'] = round(100.0 * (todouble(['Client Errors (4xx)']) + todouble(['Server Errors (5xx)'])) / Requests, 2)\n| project Requests, ['Error Rate (%)'], ['Server Errors (5xx)'], ['p95 Latency (ms)'], ['Throughput (MB)']\n| evaluate narrow()",
+        "size": 3,
+        "title": "Service health — golden signals",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "tiles",
+        "tileSettings": {
+          "titleContent": { "columnMatch": "Column", "formatter": 1 },
+          "leftContent": {
+            "columnMatch": "Value",
+            "formatter": 1,
+            "formatOptions": { "palette": "blue" }
+          },
+          "showBorder": true
+        }
+      },
+      "name": "kpi-tiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| extend Class = case(response_code_d >= 500, '5xx', response_code_d >= 400, '4xx', response_code_d >= 300, '3xx', response_code_d >= 200, '2xx', '1xx/other')\n| summarize Requests = count() by bin(TimeGenerated, 5m), Class\n| render timechart",
+        "size": 0,
+        "title": "Request rate by response class",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "50",
+      "name": "traffic-by-class"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize p50 = percentile(response_ms_d, 50),\n            p95 = percentile(response_ms_d, 95),\n            p99 = percentile(response_ms_d, 99)\n  by bin(TimeGenerated, 5m)\n| render timechart",
+        "size": 0,
+        "title": "Response latency percentiles (ms)",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "50",
+      "name": "latency-percentiles"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Total = count(), Errors = countif(response_code_d >= 400) by bin(TimeGenerated, 5m)\n| extend ['Error Rate (%)'] = round(100.0 * Errors / Total, 2)\n| project TimeGenerated, ['Error Rate (%)']\n| render timechart",
+        "size": 0,
+        "title": "Error rate (4xx + 5xx, %)",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "timechart"
+      },
+      "customWidth": "50",
+      "name": "error-rate"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by virtual_name_s\n| top 10 by Requests desc\n| render barchart",
+        "size": 0,
+        "title": "Top 10 virtual servers by traffic",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "barchart"
+      },
+      "customWidth": "50",
+      "name": "top-vs"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| where response_code_d >= 400\n| summarize Errors = count(),\n            ['5xx'] = countif(response_code_d >= 500),\n            ['p95 ms'] = round(percentile(response_ms_d, 95), 0)\n  by URI = http_uri_s, ['Virtual Server'] = virtual_name_s\n| top 15 by Errors desc",
+        "size": 0,
+        "title": "Top failing URIs",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table",
+        "gridSettings": {
+          "formatters": [
+            { "columnMatch": "Errors", "formatter": 8, "formatOptions": { "palette": "red" } },
+            { "columnMatch": "5xx", "formatter": 8, "formatOptions": { "palette": "redBright" } }
+          ]
+        }
+      },
+      "name": "top-failing-uris"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            Errors = countif(response_code_d >= 400),\n            ['Bytes (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n  by ['Client IP'] = client_ip_s\n| extend ['Error %'] = round(100.0 * Errors / Requests, 1)\n| top 15 by Requests desc",
+        "size": 0,
+        "title": "Top clients by request volume",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "table"
+      },
+      "customWidth": "50",
+      "name": "top-clients"
+    },
+    {
+      "type": 3,
+      "content": {
+        "version": "KqlItem/1.0",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by ['Response Code'] = tostring(toint(response_code_d))\n| top 10 by Requests desc\n| render piechart",
+        "size": 0,
+        "title": "Response code distribution",
+        "queryType": 0,
+        "resourceType": "microsoft.operationalinsights/workspaces",
+        "visualization": "piechart"
+      },
+      "customWidth": "50",
+      "name": "response-code-dist"
+    }
+  ],
+  "fallbackResourceIds": [],
+  "$schema": "https://github.com/Microsoft/Application-Insights-Workbooks/blob/master/schema/workbook.json"
+}

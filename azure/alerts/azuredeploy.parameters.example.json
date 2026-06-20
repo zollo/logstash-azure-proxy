@@ -1,0 +1,39 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentParameters.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "workspaceResourceId": {
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-observability/providers/Microsoft.OperationalInsights/workspaces/law-f5-telemetry"
+    },
+    "location": {
+      "value": "eastus"
+    },
+    "actionGroupResourceId": {
+      "value": "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/rg-observability/providers/Microsoft.Insights/actionGroups/ag-sre-oncall"
+    },
+    "namePrefix": {
+      "value": "F5"
+    },
+    "systemMinEvents": {
+      "value": 1
+    },
+    "ltmMinEvents": {
+      "value": 1
+    },
+    "asmMinEvents": {
+      "value": 1
+    },
+    "ingestionLagP95Seconds": {
+      "value": 300
+    },
+    "ltm5xxThresholdPct": {
+      "value": 5
+    },
+    "ltmLatencyP95Ms": {
+      "value": 1000
+    },
+    "asmCriticalThreshold": {
+      "value": 25
+    }
+  }
+}
