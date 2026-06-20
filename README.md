@@ -238,6 +238,22 @@ continues to accept incoming bursts from the F5. Those spikes safely pool inside
 the `/var/lib/logstash/queue` directory on disk. Once Azure stops throttling,
 Logstash drains the disk queue at a controlled pace until it catches up.
 
+## Observability: Azure Workbooks & Monitor alerts
+
+Once telemetry is landing in Azure Log Analytics, the [`azure/`](azure/)
+directory provides an SRE-ready observability layer on top of it:
+
+- **Workbooks** — [`azure/workbooks/`](azure/workbooks/): an **LTM** golden-signals
+  dashboard, an **ASM/WAF** security-operations dashboard, and an **Ingestion &
+  Pipeline Health** dashboard.
+- **Alerts** — [`azure/alerts/`](azure/alerts/): nine deployable Azure Monitor
+  scheduled-query rules (one ARM template) covering **low-ingestion / no-data**,
+  ingestion latency, LTM error-rate and latency, ASM critical-attack spikes, and
+  BIG-IP device health.
+- **Docs** — [`azure/README.md`](azure/README.md) explains the Log Analytics
+  data model (the `_CL` / `_s` / `_d` suffixes, ASM array handling), how to
+  import/deploy everything, and per-alert runbooks for the on-call team.
+
 ## Building locally
 
 ```bash
