@@ -82,7 +82,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize ['Total Events'] = count(),\n            Blocked = countif(request_status_s == 'blocked'),\n            Alerted = countif(request_status_s == 'alerted'),\n            ['Critical'] = countif(severity_s == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client_s)\n| extend ['Block Rate (%)'] = round(100.0 * Blocked / ['Total Events'], 1)\n| project ['Total Events'], Blocked, ['Block Rate (%)'], ['Critical'], ['Unique Attackers']\n| evaluate narrow()",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize ['Total Events'] = count(),\n            Blocked = countif(request_status_s == 'blocked'),\n            Alerted = countif(request_status_s == 'alerted'),\n            ['Critical'] = countif(severity_s == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client_s)\n| extend ['Block Rate (%)'] = iif(['Total Events'] == 0, 0.0, round(100.0 * Blocked / ['Total Events'], 1))\n| project ['Total Events'], Blocked, ['Block Rate (%)'], ['Critical'], ['Unique Attackers']\n| evaluate narrow()",
         "size": 3,
         "title": "WAF posture — summary",
         "queryType": 0,

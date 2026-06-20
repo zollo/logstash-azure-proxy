@@ -83,7 +83,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            ['Client Errors (4xx)'] = countif(response_code_d between (400 .. 499)),\n            ['Server Errors (5xx)'] = countif(response_code_d >= 500),\n            ['p95 Latency (ms)'] = round(percentile(response_ms_d, 95), 0),\n            ['Throughput (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n| extend ['Error Rate (%)'] = round(100.0 * (todouble(['Client Errors (4xx)']) + todouble(['Server Errors (5xx)'])) / Requests, 2)\n| project Requests, ['Error Rate (%)'], ['Server Errors (5xx)'], ['p95 Latency (ms)'], ['Throughput (MB)']\n| evaluate narrow()",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            ['Client Errors (4xx)'] = countif(response_code_d between (400 .. 499)),\n            ['Server Errors (5xx)'] = countif(response_code_d >= 500),\n            ['p95 Latency (ms)'] = round(percentile(response_ms_d, 95), 0),\n            ['Throughput (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n| extend ['Error Rate (%)'] = iif(Requests == 0, 0.0, round(100.0 * (todouble(['Client Errors (4xx)']) + todouble(['Server Errors (5xx)'])) / Requests, 2))\n| project Requests, ['Error Rate (%)'], ['Server Errors (5xx)'], ['p95 Latency (ms)'], ['Throughput (MB)']\n| evaluate narrow()",
         "size": 3,
         "title": "Service health — golden signals",
         "queryType": 0,
@@ -133,7 +133,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Total = count(), Errors = countif(response_code_d >= 400) by bin(TimeGenerated, 5m)\n| extend ['Error Rate (%)'] = round(100.0 * Errors / Total, 2)\n| project TimeGenerated, ['Error Rate (%)']\n| render timechart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Total = count(), Errors = countif(response_code_d >= 400) by bin(TimeGenerated, 5m)\n| extend ['Error Rate (%)'] = iif(Total == 0, real(null), round(100.0 * Errors / Total, 2))\n| project TimeGenerated, ['Error Rate (%)']\n| render timechart",
         "size": 0,
         "title": "Error rate (4xx + 5xx, %)",
         "queryType": 0,

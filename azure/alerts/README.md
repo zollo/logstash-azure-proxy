@@ -63,11 +63,12 @@ az deployment group what-if \
 its silence is unambiguous — unlike event-driven LTM/ASM, which can legitimately
 go quiet.
 ```kql
-F5Telemetry_System_CL
+union isfuzzy=true (F5Telemetry_System_CL)
 | summarize Count = count()
 ```
 *(measure `Count` `LessThan` `systemMinEvents`; the always-one-row `summarize`
-makes `0` fire — see overview §5.)*
+makes `0` fire, and `union isfuzzy=true` keeps it working before the table's
+first write — see overview §5.)*
 
 **Runbook:** proxy down or blind?
 1. Health workbook → **Pipeline freshness**: is *only* System stale, or all

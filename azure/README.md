@@ -230,7 +230,7 @@ a log-alert query over an empty result set normally returns **no rows**, which
 Azure treats as *healthy*. We avoid that trap:
 
 ```kql
-F5Telemetry_System_CL
+union isfuzzy=true (F5Telemetry_System_CL)
 | summarize Count = count()
 ```
 
@@ -239,6 +239,12 @@ when the input is empty, you get a single row with `Count = 0`. The alert rule
 then uses that row's `Count` as its metric measure (`metricMeasureColumn:
 "Count"`, `operator: LessThan`), so *zero ingestion produces a concrete `0` that
 trips the threshold*. This is the key to a reliable no-data alarm.
+
+The single table is wrapped in `union isfuzzy=true (...)` so the rule still
+evaluates to `Count = 0` (rather than entering an error state) **before the
+`_CL` table has been physically created** by its first write — `isfuzzy`
+tolerates a not-yet-existing table. The same pattern is used for every no-data
+rule.
 
 Two more best practices baked into the rules:
 
