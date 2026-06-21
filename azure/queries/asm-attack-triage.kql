@@ -1,0 +1,21 @@
+// ASM/WAF attack triage: top attackers, attack types, and signatures.
+// Handles the array-as-JSON-string quirk (see data model §2.3): a multi-value
+// field arrives as a JSON array string, a single value as a plain scalar, so we
+// normalize both shapes before mv-expand.
+let lookback = 6h;
+let topN = 25;
+F5Telemetry_ASM_CL
+| where TimeGenerated > ago(lookback)
+| where request_status_s == "blocked"      // drop the filter to include alerted/passed
+| extend _at = todynamic(attack_type_s)
+| extend _at = iif(gettype(_at) == "array", _at, pack_array(attack_type_s))
+| mv-expand AttackType = _at to typeof(string)
+| summarize
+    Events     = count(),
+    Critical   = countif(severity_s == "Critical"),
+    Policies   = dcount(policy_name_s),
+    Countries  = make_set(geo_location_s, 10),
+    LastSeen   = max(TimeGenerated)
+    by Attacker = f5_src_ip_s, AttackType
+| top topN by Events desc
+| order by Events desc

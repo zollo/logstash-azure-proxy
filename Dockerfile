@@ -35,6 +35,8 @@ ENV LS_JAVA_OPTS="-XX:InitialRAMPercentage=75 -XX:MinRAMPercentage=75 -XX:MaxRAM
 # are overridable at runtime via environment variables.
 ENV LS_QUEUE_PATH=/var/lib/logstash/queue \
     LS_QUEUE_MAX_BYTES=60gb \
+    LS_DLQ_PATH=/var/lib/logstash/dlq \
+    LS_DLQ_MAX_BYTES=1gb \
     HTTP_INPUT_PORT=8080
 
 # ---------------------------------------------------------------------------
@@ -43,6 +45,7 @@ ENV LS_QUEUE_PATH=/var/lib/logstash/queue \
 COPY --chown=logstash:logstash config/logstash.yml    /usr/share/logstash/config/logstash.yml
 COPY --chown=logstash:logstash config/pipelines.yml   /usr/share/logstash/config/pipelines.yml
 COPY --chown=logstash:logstash pipeline/              /usr/share/logstash/pipeline/
+COPY --chown=logstash:logstash dlq/                   /usr/share/logstash/dlq/
 
 # ---------------------------------------------------------------------------
 # Create the default persistent-queue directory owned by the logstash user.
@@ -50,7 +53,7 @@ COPY --chown=logstash:logstash pipeline/              /usr/share/logstash/pipeli
 # ownership onto the volume.
 # ---------------------------------------------------------------------------
 USER root
-RUN mkdir -p /var/lib/logstash/queue \
+RUN mkdir -p /var/lib/logstash/queue /var/lib/logstash/dlq \
  && chown -R logstash:logstash /var/lib/logstash
 USER logstash
 

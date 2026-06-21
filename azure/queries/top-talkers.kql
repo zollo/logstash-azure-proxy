@@ -1,0 +1,15 @@
+// LTM top talkers: busiest client IPs, virtual servers, and URIs.
+// Useful for capacity, hotspot detection, and "who is hammering us right now".
+let lookback = 1h;
+let topN = 20;
+F5Telemetry_LTM_CL
+| where TimeGenerated > ago(lookback)
+| summarize
+    Requests   = count(),
+    Bytes      = sum(response_size_d),
+    P95Ms      = round(percentile(response_ms_d, 95), 1),
+    ErrRatePct = round(100.0 * countif(response_code_d >= 500) / count(), 2),
+    Country    = take_any(f5_src_country_s)
+    by Client = f5_src_ip_s, VirtualServer = virtual_name_s
+| top topN by Requests desc
+| order by Requests desc

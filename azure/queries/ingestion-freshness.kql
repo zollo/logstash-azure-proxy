@@ -1,0 +1,24 @@
+// Ingestion freshness & lag per F5 table.
+// "Is data flowing, and is it on time?" — the first thing to check on an
+// ingestion page. LastEventAgeMin = how stale the newest record is;
+// P95LagSec = event-time vs. Azure-index-time (proxy queue backlog / throttling).
+let lookback = 1h;
+union isfuzzy=true
+    (F5Telemetry_LTM_CL),
+    (F5Telemetry_ASM_CL),
+    (F5Telemetry_System_CL),
+    (F5Telemetry_AFM_CL),
+    (F5Telemetry_APM_CL),
+    (F5Telemetry_AVR_CL),
+    (F5Telemetry_Event_CL),
+    (F5Telemetry_DLQ_CL)
+| where TimeGenerated > ago(lookback)
+| extend LagSec = (ingestion_time() - TimeGenerated) / 1s
+| summarize
+    Events          = count(),
+    LastEvent       = max(TimeGenerated),
+    P95LagSec       = round(percentile(LagSec, 95), 1)
+    by Table = Type
+| extend LastEventAgeMin = round((now() - LastEvent) / 1m, 1)
+| project Table, Events, LastEventAgeMin, P95LagSec, LastEvent
+| order by LastEventAgeMin desc

@@ -126,9 +126,15 @@ The triage companion for the ingestion alerts. Filters: time, **Stale threshold
 
 - **Custom table names:** if you overrode `AZURE_TABLE_*` in the proxy, update
   the table names in each `.workbook` before importing.
-- **Deeper System metrics:** cpu/memory/virtualServers/pools live inside the
+- **Device saturation:** the proxy now promotes `f5_device_cpu_d`,
+  `f5_device_memory_d`, `f5_device_tmm_cpu_d`, and `f5_device_tmm_memory_d` as
+  numeric columns, so you can add a CPU/memory tile or trend to the **BIG-IP
+  fleet** panel without parsing JSON. Use
+  [`../queries/device-saturation.kql`](../queries/device-saturation.kql) as the
+  panel query; it backs alert #10.
+- **Other System metrics:** virtualServers/pools/profiles still live inside the
   serialized `system_s` (etc.) columns; `extend s = parse_json(system_s)` then
-  reference `s.cpu`, `s.memory`, … to extend the health workbook.
+  reference `s.virtualServers`, … to extend the health workbook.
 - **AFM/APM/AVR:** these tables are routed today but only lightly parsed
   ([`50-modules-future.conf`](../../pipeline/50-modules-future.conf)). The
   health workbook already includes them via `union isfuzzy=true`; build

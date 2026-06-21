@@ -1,12 +1,12 @@
 # F5 Telemetry — Azure Monitor Alerts
 
-Nine SRE-focused **scheduled query (log) alert rules** for the F5 telemetry
+Ten SRE-focused **scheduled query (log) alert rules** for the F5 telemetry
 pipeline, deployable as one ARM template. Read the
 [Azure observability overview](../README.md) first — especially the
 [low-ingestion pattern](../README.md#5-the-low-ingestion-pattern-why-it-actually-fires-on-no-data)
 and the [data model](../README.md#2-data-model-how-f5-fields-land-in-log-analytics).
 
-- [`azuredeploy.json`](azuredeploy.json) — the template (9 rules).
+- [`azuredeploy.json`](azuredeploy.json) — the template (10 rules).
 - [`azuredeploy.parameters.example.json`](azuredeploy.parameters.example.json) —
   copy to `azuredeploy.parameters.json` and fill in.
 
@@ -48,6 +48,8 @@ az deployment group what-if \
 | `ltm5xxThresholdPct` | `5` | LTM 5xx error-rate threshold, percent (#6). |
 | `ltmLatencyP95Ms` | `1000` | LTM p95 latency threshold, ms (#7). |
 | `asmCriticalThreshold` | `25` | Blocked-Critical events per policy / 5-min (#8). |
+| `deviceCpuThresholdPct` | `85` | BIG-IP system CPU % (latest snapshot/device) threshold (#10). |
+| `deviceMemThresholdPct` | `90` | BIG-IP system memory % (latest snapshot/device) threshold (#10). |
 
 ---
 
@@ -169,6 +171,24 @@ F5Telemetry_System_CL
 Pending`/`Disconnected` sync. Health workbook → **BIG-IP fleet** for the
 device's state and last poll time. Investigate the HA pair / config-sync;
 expected during planned maintenance (acknowledge to mute).
+
+### 10. BIG-IP device CPU/memory saturated — Sev 2 · 15m / 5m · split by **Host**
+**Fires:** the latest System Poller snapshot for a device reports system CPU
+over `deviceCpuThresholdPct` **or** memory over `deviceMemThresholdPct`.
+**Depends on** the numeric `f5_device_cpu_d` / `f5_device_memory_d` columns the
+proxy promotes from the System Poller snapshot
+([`40-system.conf`](../../pipeline/40-system.conf)).
+```kql
+F5Telemetry_System_CL
+| summarize arg_max(TimeGenerated, f5_device_cpu_d, f5_device_memory_d) by Host = f5_device_hostname_s
+| where f5_device_cpu_d > 85 or f5_device_memory_d > 90
+| summarize Count = count() by Host
+```
+**Runbook:** the device is resource-constrained and may start dropping
+connections or shedding telemetry (often the *root cause* behind #5 ingestion
+lag or #7 LTM latency). Health workbook → **device saturation** trend; check
+connection counts and traffic on the busiest virtual servers, and whether this
+correlates with a failover (#9). Sustained saturation = capacity/HA review.
 
 ---
 

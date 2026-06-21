@@ -61,12 +61,19 @@ numeric prefixes define execution order:
 | ---- | -------------- |
 | [`01-input.conf`](pipeline/01-input.conf) | HTTP input (`:8080`, JSON codec) |
 | [`10-classify.conf`](pipeline/10-classify.conf) | Resolve the F5 TS category from `telemetryEventCategory`, or infer it from the event shape; add common fields (`f5_telemetry_category`, `f5_device_hostname`) |
-| [`20-ltm.conf`](pipeline/20-ltm.conf) | LTM request-log typing + timestamp |
+| [`12-clean.conf`](pipeline/12-clean.conf) | Strip F5 placeholder values (`N/A` / `-` / empty) so columns are absent rather than noisy |
+| [`20-ltm.conf`](pipeline/20-ltm.conf) | LTM request-log typing, `response_code_class` bucket, timestamp |
 | [`30-asm.conf`](pipeline/30-asm.conf) | ASM/WAF: split multi-value fields to arrays, type coercion, timestamp |
-| [`40-system.conf`](pipeline/40-system.conf) | System Poller: promote key device fields, use the snapshot timestamp |
+| [`40-system.conf`](pipeline/40-system.conf) | System Poller: promote key device fields **and numeric CPU/memory metrics**, use the snapshot timestamp |
 | [`50-modules-future.conf`](pipeline/50-modules-future.conf) | AFM / APM / AVR baseline parsing + clearly marked extension points |
+| [`70-normalize.conf`](pipeline/70-normalize.conf) | Cross-module common schema (`f5_src_ip`, `f5_dest_ip`, …) + GeoIP enrichment of public source IPs |
 | [`80-finalize.conf`](pipeline/80-finalize.conf) | Set `EventTime` (→ Azure `TimeGenerated`) |
 | [`90-output.conf`](pipeline/90-output.conf) | Route each category to its own Azure custom table |
+
+A second, small **`dlq`** pipeline ([`dlq/dlq.conf`](dlq/dlq.conf)) drains the
+Dead Letter Queue — events the main pipeline cannot process — to the
+`F5Telemetry_DLQ_CL` table instead of dropping them. See
+[Reliability: the Dead Letter Queue](#reliability-the-dead-letter-queue).
 
 ### Event classification
 
@@ -80,6 +87,23 @@ Every event is tagged with a category, stored in `[@metadata][f5_category]`
    **AFM**, `Access_Profile`/`Access_Policy_Result` → **APM**.
 3. Anything still unidentified is labelled `event` and sent to the fallback
    table, so data is never dropped.
+
+### Cross-module normalization & enrichment
+
+After per-module parsing, [`70-normalize.conf`](pipeline/70-normalize.conf) adds
+a small **common schema** so an SRE can correlate the same entity across tables
+without learning each module's native field names:
+
+- `f5_src_ip` / `f5_dest_ip` — source/dest IP, filled from LTM `client_ip`/`server_ip`,
+  ASM `ip_client`/`dest_ip`, AFM `source_ip`/`dest_ip`.
+- `f5_http_method`, `f5_response_code` — normalized request attributes.
+- `f5_src_country` / `f5_src_city` — **GeoIP** of the source IP (public addresses
+  only; RFC1918 / loopback / CGNAT ranges are skipped).
+
+[`12-clean.conf`](pipeline/12-clean.conf) drops F5's `N/A` / `-` / empty
+placeholder values so those columns are simply absent on records they don't
+apply to. See [`azure/README.md`](azure/README.md#24-normalized-cross-module-columns-present-on-every-table)
+for the full column reference.
 
 ### Destination tables
 
@@ -96,6 +120,7 @@ own statically-named, env-overridable table. Azure appends the `_CL` suffix:
 | APM        | `AZURE_TABLE_APM`    | `F5Telemetry_APM` (`_CL`) |
 | AVR        | `AZURE_TABLE_AVR`    | `F5Telemetry_AVR` (`_CL`) |
 | _fallback_ | `AZURE_LOG_TABLE`    | `F5Telemetry_Event` (`_CL`) |
+| _dead-letter_ | `AZURE_TABLE_DLQ` | `F5Telemetry_DLQ` (`_CL`) |
 
 ### Adding a new module (e.g. fully enabling AFM)
 
@@ -176,6 +201,8 @@ dynamic CPU/memory allocation and mounted volumes for the queue and config.
 | `LS_MEM_RESERVATION` | `2g`    | Reserved memory                           |
 | `LS_QUEUE_PATH`      | `/var/lib/logstash/queue` | Persistent queue location |
 | `LS_QUEUE_MAX_BYTES` | `60gb`  | Max persistent queue size                 |
+| `LS_DLQ_PATH`        | `/var/lib/logstash/dlq` | Dead Letter Queue location  |
+| `LS_DLQ_MAX_BYTES`   | `1gb`   | Max Dead Letter Queue size                |
 | `HTTP_INPUT_PORT`    | `8080`  | HTTP input listen port                    |
 | `API_PORT`           | `9600`  | Logstash monitoring API port              |
 | `AZURE_WORKSPACE_ID` | —       | **Required** — Log Analytics workspace ID |
@@ -184,6 +211,7 @@ dynamic CPU/memory allocation and mounted volumes for the queue and config.
 | `AZURE_MAX_ITEMS`    | `2000`  | Max items per Azure batch                 |
 | `AZURE_TABLE_LTM` / `_ASM` / `_SYSTEM` / `_AFM` / `_APM` / `_AVR` | `F5Telemetry_*` | Per-category destination tables |
 | `AZURE_LOG_TABLE`    | `F5Telemetry_Event` | Fallback table for unclassified events |
+| `AZURE_TABLE_DLQ`    | `F5Telemetry_DLQ`   | Table for un-processable events drained from the DLQ |
 | `DEBUG_STDOUT`       | `false` | Echo every event to the container logs    |
 
 ### Volumes
@@ -203,6 +231,8 @@ environment variables (using Logstash's `${VAR:default}` substitution in
 | ----------------- | -------------------- | -------------------------- |
 | `path.queue`      | `LS_QUEUE_PATH`      | `/var/lib/logstash/queue`  |
 | `queue.max_bytes` | `LS_QUEUE_MAX_BYTES` | `60gb`                     |
+| `path.dead_letter_queue` | `LS_DLQ_PATH`        | `/var/lib/logstash/dlq` |
+| `dead_letter_queue.max_bytes` | `LS_DLQ_MAX_BYTES` | `1gb`            |
 
 ## Memory
 
@@ -238,6 +268,22 @@ continues to accept incoming bursts from the F5. Those spikes safely pool inside
 the `/var/lib/logstash/queue` directory on disk. Once Azure stops throttling,
 Logstash drains the disk queue at a controlled pace until it catches up.
 
+## Reliability: the Dead Letter Queue
+
+The persistent queue absorbs *backpressure*, but an individual event that a
+plugin cannot process (a mapping or serialization failure) would otherwise be
+dropped. To preserve the "never lose data" guarantee end to end, the Dead Letter
+Queue is enabled (`dead_letter_queue.enable: true`) on a persisted volume, and a
+small second pipeline ([`dlq/dlq.conf`](dlq/dlq.conf)) drains it to the
+`F5Telemetry_DLQ_CL` table — annotated with the failure reason and offending
+plugin — so dead events are **visible, queryable, and recoverable** rather than
+silently aged out.
+
+> That table should normally be **empty**; a non-zero count is itself a useful
+> alert condition (see [`azure/queries/dlq-health.kql`](azure/queries/dlq-health.kql)).
+> The DLQ only captures events from plugins that implement the DLQ API plus
+> pipeline-level mapping errors — it is a safety net, not a catch-all.
+
 ## Observability: Azure Workbooks & Monitor alerts
 
 Once telemetry is landing in Azure Log Analytics, the [`azure/`](azure/)
@@ -246,10 +292,14 @@ directory provides an SRE-ready observability layer on top of it:
 - **Workbooks** — [`azure/workbooks/`](azure/workbooks/): an **LTM** golden-signals
   dashboard, an **ASM/WAF** security-operations dashboard, and an **Ingestion &
   Pipeline Health** dashboard.
-- **Alerts** — [`azure/alerts/`](azure/alerts/): nine deployable Azure Monitor
+- **Alerts** — [`azure/alerts/`](azure/alerts/): ten deployable Azure Monitor
   scheduled-query rules (one ARM template) covering **low-ingestion / no-data**,
   ingestion latency, LTM error-rate and latency, ASM critical-attack spikes, and
-  BIG-IP device health.
+  BIG-IP device health and **CPU/memory saturation**.
+- **KQL cookbook** — [`azure/queries/`](azure/queries/): reusable, parameterized
+  queries (top talkers, error budget, attack triage, cross-table pivot by client
+  IP, DLQ health, device saturation) to paste into the Logs blade or save as
+  workspace functions.
 - **Docs** — [`azure/README.md`](azure/README.md) explains the Log Analytics
   data model (the `_CL` / `_s` / `_d` suffixes, ASM array handling), how to
   import/deploy everything, and per-alert runbooks for the on-call team.

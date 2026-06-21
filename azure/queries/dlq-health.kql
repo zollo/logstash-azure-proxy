@@ -1,0 +1,15 @@
+// Dead Letter Queue health. This table should normally be EMPTY — any rows mean
+// the pipeline could not process some events (mapping/serialization failure on
+// the way to Azure). Alert on count > 0 and use the reason to diagnose.
+let lookback = 24h;
+union isfuzzy=true (F5Telemetry_DLQ_CL)
+| where TimeGenerated > ago(lookback)
+| summarize
+    Failed   = count(),
+    LastSeen = max(TimeGenerated)
+    by Reason = f5_dlq_reason_s, Plugin = f5_dlq_plugin_id_s
+| order by Failed desc
+// For a no-data-safe alert metric (always returns one row, even when empty):
+//   union isfuzzy=true (F5Telemetry_DLQ_CL)
+//   | where TimeGenerated > ago(15m)
+//   | summarize Count = count()        // alert: Count GreaterThan 0

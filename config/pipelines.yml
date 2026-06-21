@@ -4,3 +4,11 @@
 # from logstash.yml.
 - pipeline.id: f5-telemetry
   path.config: "/usr/share/logstash/pipeline/*.conf"
+
+# Drains the Dead Letter Queue written by the f5-telemetry pipeline and ships
+# any un-processable events to the F5Telemetry_DLQ_CL table (see dlq/dlq.conf).
+# This pipeline does NOT use the dead_letter_queue feature itself, so failures
+# here are dropped rather than looping back into the DLQ.
+- pipeline.id: dlq
+  path.config: "/usr/share/logstash/dlq/*.conf"
+  dead_letter_queue.enable: false

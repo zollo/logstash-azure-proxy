@@ -34,6 +34,12 @@
     },
     "asmCriticalThreshold": {
       "value": 25
+    },
+    "deviceCpuThresholdPct": {
+      "value": 85
+    },
+    "deviceMemThresholdPct": {
+      "value": 90
     }
   }
 }

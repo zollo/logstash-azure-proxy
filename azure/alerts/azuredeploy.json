@@ -58,6 +58,16 @@
       "type": "int",
       "defaultValue": 25,
       "metadata": { "description": "Number of blocked, Critical-severity ASM events (per WAF policy, over a 5-minute window) that indicates an attack spike." }
+    },
+    "deviceCpuThresholdPct": {
+      "type": "int",
+      "defaultValue": 85,
+      "metadata": { "description": "BIG-IP system CPU utilization (percent, latest System Poller snapshot per device) above which the device-saturation alert fires." }
+    },
+    "deviceMemThresholdPct": {
+      "type": "int",
+      "defaultValue": 90,
+      "metadata": { "description": "BIG-IP system memory utilization (percent, latest System Poller snapshot per device) above which the device-saturation alert fires." }
     }
   },
   "variables": {
@@ -349,6 +359,40 @@
         "skipQueryValidation": true,
         "actions": { "actionGroups": "[variables('actionGroups')]" }
       }
+    },
+    {
+      "type": "Microsoft.Insights/scheduledQueryRules",
+      "apiVersion": "2021-08-01",
+      "name": "[concat(parameters('namePrefix'), '-Device-Saturation')]",
+      "location": "[parameters('location')]",
+      "kind": "LogAlert",
+      "properties": {
+        "displayName": "[concat(parameters('namePrefix'), ' | BIG-IP device CPU/memory saturated')]",
+        "description": "The most recent System Poller snapshot for a BIG-IP shows system CPU or memory utilization above the configured threshold. Alerts split per device via the Host dimension. Relies on the f5_device_cpu_d / f5_device_memory_d columns promoted by the proxy's System Poller parsing (40-system.conf). Indicates the device is resource-constrained and at risk of dropping connections or shedding telemetry.",
+        "severity": 2,
+        "enabled": true,
+        "evaluationFrequency": "PT5M",
+        "windowSize": "PT15M",
+        "scopes": [ "[parameters('workspaceResourceId')]" ],
+        "criteria": {
+          "allOf": [
+            {
+              "query": "[concat('F5Telemetry_System_CL\\n| summarize arg_max(TimeGenerated, f5_device_cpu_d, f5_device_memory_d) by Host = f5_device_hostname_s\\n| where f5_device_cpu_d > ', parameters('deviceCpuThresholdPct'), ' or f5_device_memory_d > ', parameters('deviceMemThresholdPct'), '\\n| summarize Count = count() by Host')]",
+              "timeAggregation": "Total",
+              "metricMeasureColumn": "Count",
+              "operator": "GreaterThan",
+              "threshold": 0,
+              "dimensions": [
+                { "name": "Host", "operator": "Include", "values": [ "*" ] }
+              ],
+              "failingPeriods": { "numberOfEvaluationPeriods": 1, "minFailingPeriodsToAlert": 1 }
+            }
+          ]
+        },
+        "autoMitigate": true,
+        "skipQueryValidation": true,
+        "actions": { "actionGroups": "[variables('actionGroups')]" }
+      }
     }
   ],
   "outputs": {
@@ -363,7 +407,8 @@
         "[concat(parameters('namePrefix'), '-LTM-5xx-Error-Rate')]",
         "[concat(parameters('namePrefix'), '-LTM-Latency-Degraded')]",
         "[concat(parameters('namePrefix'), '-ASM-Critical-Attack-Spike')]",
-        "[concat(parameters('namePrefix'), '-Device-Health-Degraded')]"
+        "[concat(parameters('namePrefix'), '-Device-Health-Degraded')]",
+        "[concat(parameters('namePrefix'), '-Device-Saturation')]"
       ]
     }
   }

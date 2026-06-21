@@ -24,6 +24,10 @@ services:
       LS_QUEUE_PATH: ${LS_QUEUE_PATH:-/var/lib/logstash/queue}
       LS_QUEUE_MAX_BYTES: ${LS_QUEUE_MAX_BYTES:-60gb}
 
+      # --- Dead Letter Queue ----------------------------------------------
+      LS_DLQ_PATH: ${LS_DLQ_PATH:-/var/lib/logstash/dlq}
+      LS_DLQ_MAX_BYTES: ${LS_DLQ_MAX_BYTES:-1gb}
+
       # --- HTTP input -----------------------------------------------------
       # NOTE: do NOT name this HTTP_PORT — Logstash maps that env var onto its
       # http.port setting, which collides with api.http.port (the LS API port).
@@ -47,6 +51,8 @@ services:
       AZURE_TABLE_AVR: ${AZURE_TABLE_AVR:-F5Telemetry_AVR}
       # Fallback table for unclassified events.
       AZURE_LOG_TABLE: ${AZURE_LOG_TABLE:-F5Telemetry_Event}
+      # Table for events that could not be processed (drained from the DLQ).
+      AZURE_TABLE_DLQ: ${AZURE_TABLE_DLQ:-F5Telemetry_DLQ}
 
       # --- Debugging -----------------------------------------------------
       DEBUG_STDOUT: ${DEBUG_STDOUT:-false}
@@ -58,11 +64,14 @@ services:
     volumes:
       # Durable storage for the persistent queue.
       - logstash-queue:${LS_QUEUE_PATH:-/var/lib/logstash/queue}
+      # Durable storage for the Dead Letter Queue.
+      - logstash-dlq:${LS_DLQ_PATH:-/var/lib/logstash/dlq}
       # Pre-built configuration mounted read-only so it can be tuned without
       # rebuilding the image.
       - ./config/logstash.yml:/usr/share/logstash/config/logstash.yml:ro
       - ./config/pipelines.yml:/usr/share/logstash/config/pipelines.yml:ro
       - ./pipeline:/usr/share/logstash/pipeline:ro
+      - ./dlq:/usr/share/logstash/dlq:ro
 
     # ---------------------------------------------------------------------
     # Dynamic CPU / memory allocation.  Honored by Compose v2 for
@@ -101,4 +110,6 @@ services:
 
 volumes:
   logstash-queue:
+    driver: local
+  logstash-dlq:
     driver: local

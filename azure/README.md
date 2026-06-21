@@ -69,6 +69,7 @@ appends `_CL` ("custom log"):
 | APM         | `F5Telemetry_APM`     | `F5Telemetry_APM_CL`       |
 | AVR         | `F5Telemetry_AVR`     | `F5Telemetry_AVR_CL`       |
 | _fallback_  | `F5Telemetry_Event`   | `F5Telemetry_Event_CL`     |
+| _dead-letter_ | `F5Telemetry_DLQ`   | `F5Telemetry_DLQ_CL`       |
 
 > **If you overrode `AZURE_TABLE_*`** in the proxy, find-and-replace the table
 > names in the `.workbook` files and `azuredeploy.json` before importing.
@@ -111,7 +112,46 @@ workbook and the docs therefore normalize **both shapes** before exploding:
 | mv-expand AttackType = _arr to typeof(string)
 ```
 
-### 2.4 Field reference (the columns the dashboards/alerts rely on)
+### 2.4 Normalized cross-module columns (present on every table)
+
+To correlate the *same* entity across tables without remembering each module's
+native field name, the proxy ([`70-normalize.conf`](../pipeline/70-normalize.conf))
+copies a small common set onto every event. Pivot on these when joining LTM,
+ASM, and AFM:
+
+| Column | Filled from (per module) | Meaning |
+| ------ | ------------------------ | ------- |
+| `f5_src_ip_s` | LTM `client_ip` · ASM `ip_client` · AFM `source_ip` | Client / attacker / source IP |
+| `f5_dest_ip_s` | LTM `server_ip` · ASM/AFM `dest_ip` | Pool member / destination IP |
+| `f5_http_method_s` | LTM `http_method` · ASM `method` | HTTP verb |
+| `f5_response_code_d` | `response_code` | HTTP status (numeric) |
+| `f5_src_country_s`, `f5_src_city_s` | GeoIP of `f5_src_ip` | Source geo (public IPs only) |
+| `f5_telemetry_category_s` | classifier | LTM / ASM / systemInfo / … |
+| `f5_device_hostname_s` | `hostname` / `system.hostname` | Originating BIG-IP |
+| `f5_collector_s` | constant | `logstash-azure-proxy` (`-dlq` for DLQ rows) |
+
+> **GeoIP** is applied only to public source IPs (RFC1918 / loopback / CGNAT
+> ranges are skipped), so internal traffic simply has no `f5_src_country_s`.
+> This is richer than ASM's F5-supplied `geo_location_s` (country code only)
+> and is the only geo signal available for LTM. Example "what else did this
+> attacker touch" pivot:
+> ```kql
+> let ip = "198.51.100.23";
+> union isfuzzy=true (F5Telemetry_LTM_CL), (F5Telemetry_ASM_CL), (F5Telemetry_AFM_CL)
+> | where f5_src_ip_s == ip
+> | project TimeGenerated, f5_telemetry_category_s, f5_dest_ip_s, f5_http_method_s, f5_response_code_d
+> | order by TimeGenerated desc
+> ```
+
+### 2.5 Placeholder cleanup
+
+F5 emits literal `"N/A"` / `"-"` / empty strings for inapplicable attributes
+(e.g. `username`, `x_forwarded_for_header_value`). The proxy
+([`12-clean.conf`](../pipeline/12-clean.conf)) drops these top-level fields, so
+those columns are simply **absent** on records they don't apply to — filter with
+`isnotempty(username_s)` rather than `username_s != "N/A"`.
+
+### 2.6 Field reference (the columns the dashboards/alerts rely on)
 
 **`F5Telemetry_LTM_CL`** (parsed in [`20-ltm.conf`](../pipeline/20-ltm.conf))
 
@@ -123,6 +163,7 @@ workbook and the docs therefore normalize **both shapes** before exploding:
 | `server_ip_s`, `server_port_d` | Selected pool member |
 | `http_method_s`, `http_uri_s`, `protocol_s` | Request |
 | `response_code_d` | HTTP status (numeric) |
+| `response_code_class_s` | Status bucket (`2xx`/`3xx`/`4xx`/`5xx`), derived once in the pipeline |
 | `response_ms_d` | Server-side response time (ms) |
 | `response_size_d`, `request_size_d` | Bytes |
 
@@ -149,11 +190,30 @@ workbook and the docs therefore normalize **both shapes** before exploding:
 | `f5_device_version_s` | TMOS version |
 | `f5_device_failoverStatus_s` | `ACTIVE` / `STANDBY` / `FORCED_OFFLINE` / … |
 | `f5_device_syncStatus_s` | `In Sync` / `Standalone` / `Changes Pending` / … |
+| `f5_device_cpu_d` | System CPU utilization (%) |
+| `f5_device_memory_d` | System memory utilization (%) |
+| `f5_device_tmm_cpu_d` | TMM (data-plane) CPU utilization (%) |
+| `f5_device_tmm_memory_d` | TMM memory utilization (%) |
 
-> The full nested System Poller snapshot (cpu, memory, virtualServers, pools)
-> is preserved but lands as JSON-string columns (e.g. `system_s`). Parse with
-> `parse_json(system_s)` if you need those deeper metrics. The four promoted
-> flat columns above are the reliable, top-level ones.
+> The four `*_d` saturation metrics are promoted to **numeric** columns
+> ([`40-system.conf`](../pipeline/40-system.conf)) so you can chart and alert on
+> device load directly (alert #10) — no `parse_json` required. The rest of the
+> nested snapshot (virtualServers, pools, profiles) is still preserved as
+> JSON-string columns (e.g. `system_s`); parse with `parse_json(system_s)` for
+> those deeper metrics.
+
+**`F5Telemetry_DLQ_CL`** (drained by [`dlq/dlq.conf`](../dlq/dlq.conf))
+
+| Column | Meaning |
+| ------ | ------- |
+| `f5_dlq_reason_s` | Why the event could not be processed |
+| `f5_dlq_plugin_id_s` | The plugin that rejected it |
+| `f5_dlq_entry_time_s` | When it entered the Dead Letter Queue |
+
+> Events the main pipeline cannot process land here instead of being dropped.
+> **This table should normally be empty** — a non-zero count is itself an alert
+> condition (see the KQL cookbook). Inspect `f5_dlq_reason_s` to diagnose, fix
+> the pipeline, and the original payload is preserved for replay.
 
 ---
 
@@ -186,7 +246,7 @@ the ARM-deployment option.
 
 ## 4. Alerts
 
-Nine scheduled-query (log) alert rules, deployable as one ARM template. Full
+Ten scheduled-query (log) alert rules, deployable as one ARM template. Full
 catalog, thresholds, and per-alert runbooks are in
 [`alerts/README.md`](alerts/README.md).
 
@@ -201,6 +261,7 @@ catalog, thresholds, and per-alert runbooks are in
 | 7 | LTM p95 latency degraded | 2 | 15m | p95 `response_ms` over threshold |
 | 8 | ASM critical attack spike | 2 | 5m | Blocked Critical events per policy over threshold |
 | 9 | BIG-IP device health degraded | 1 | 15m | Failover/sync state abnormal (per device) |
+| 10 | BIG-IP device CPU/memory saturated | 2 | 15m | Latest snapshot CPU/mem over threshold (per device) |
 
 ### Deploy
 
@@ -263,7 +324,7 @@ Two more best practices baked into the rules:
 | -------- | ------- | ----------------- |
 | **Sev 0** | Full telemetry outage (#2) | Page immediately; the proxy or its Azure path is down. |
 | **Sev 1** | Pipeline heartbeat lost / 5xx storm / device failover (#1, #6, #9) | Page; user impact or blind spot likely. |
-| **Sev 2** | Degradation — latency, ingestion lag, LTM low-ingestion, attack spike (#3, #5, #7, #8) | Investigate within the hour. |
+| **Sev 2** | Degradation — latency, ingestion lag, LTM low-ingestion, attack spike, device saturation (#3, #5, #7, #8, #10) | Investigate within the hour. |
 | **Sev 3** | Informational — ASM low-ingestion (#4) | Review during business hours; often expected. |
 
 When an ingestion alert pages, the triage order is: open the **Ingestion &
@@ -273,14 +334,110 @@ lag** (data late?) → follow the matching runbook in
 
 ---
 
-## 7. Tuning checklist (first week of operation)
+## 7. Reusable KQL ([`queries/`](queries/))
+
+The dashboards embed their queries, but the same logic is useful from the Logs
+blade, custom alerts, and ad-hoc investigation. [`queries/`](queries/) collects
+the high-value SRE queries as standalone, parameterized `.kql` files (top
+talkers, LTM error budget, attack triage, cross-table pivot by client IP, DLQ
+health, device saturation). See [`queries/README.md`](queries/README.md) for the
+catalog and how to save them as workspace functions.
+
+---
+
+## 8. Cost & retention (per-table tiering)
+
+Log Analytics bills on ingestion volume and retention, and the F5 tables have
+very different value/volume profiles — so tier them per table rather than
+accepting the workspace default:
+
+| Table | Volume | Suggested plan | Rationale |
+| ----- | ------ | -------------- | --------- |
+| `F5Telemetry_LTM_CL` | **High** (per-request) | **Basic / Auxiliary Logs** + short interactive retention, archive the rest | High-cardinality request logs; mostly queried recently or in bulk for forensics. |
+| `F5Telemetry_ASM_CL` | Medium, bursty | **Analytics** (full) | Security data — needs full KQL, joins, and longer interactive retention. |
+| `F5Telemetry_System_CL` | Low (~1/min/device) | **Analytics** (full) | Cheap, and the heartbeat/health/saturation signal everything else triages against. |
+| `F5Telemetry_DLQ_CL` | ~0 (should be empty) | **Analytics** (full) | Tiny; you want it instantly queryable when it's non-empty. |
+
+Practical levers:
+
+- Set **per-table retention** (`az monitor log-analytics workspace table update
+  --retention-time / --total-retention-time`) instead of one workspace-wide
+  value; archive beyond the interactive window.
+- Consider the **Basic/Auxiliary Logs** plan for `F5Telemetry_LTM_CL` if you
+  rarely run interactive analytics over old request logs — it markedly cuts
+  ingestion cost (with query-time and feature trade-offs; alerts #6/#7 run over
+  recent data and are unaffected).
+- Trim noise **before** ingestion (cheapest GB is the one you don't send): drop
+  fields you never query in the pipeline. Placeholder cleanup (§2.5) already
+  removes empty/`N/A` columns.
+
+> **Note on Basic/Auxiliary tiers:** these are a property of **DCR-based** tables
+> (Logs Ingestion API). Tables created by the legacy HTTP Data Collector API
+> (how this proxy writes today) are classic custom-log tables and may not expose
+> every tier option — another reason to plan the migration in §9.
+
+---
+
+## 9. Roadmap: migrate off the HTTP Data Collector API → DCR
+
+The `microsoft-logstash-output-azure-loganalytics` plugin writes through the
+**Azure Monitor HTTP Data Collector API** (workspace ID + shared key). Microsoft
+has placed that API on a **deprecation / retirement path** in favor of the
+**Logs Ingestion API with Data Collection Rules (DCR)**. Beyond lifecycle
+hygiene, DCRs materially improve the *consumer* experience:
+
+- **Explicit, typed schemas** — you define columns and types in the DCR, so the
+  `_s` / `_d` suffix guessing and the array-as-JSON-string handling (§2.3)
+  largely go away; `attack_type` can be a real `dynamic` array column.
+- **Ingestion-time transforms** (KQL) — drop/rename/redact at ingest, server
+  side, complementing the pipeline.
+- **Entra ID auth** instead of a shared workspace key (addresses the project
+  README's "prefer the keystore" security note).
+- **Per-table tiering** (§8) is a first-class DCR feature.
+
+**Migration sketch (no action required today):** create a DCR + Data Collection
+Endpoint with a stream/transform per F5 table, then point the output at it — via
+a community Logs-Ingestion Logstash output, an HTTP output to the DCE
+`/dataCollectionRules/.../streams/...:ingest` endpoint, or by fronting with the
+Azure Monitor Agent. The pipeline (input → classify → parse → normalize) is
+unchanged; **only `90-output.conf` is rewritten**, and the workbooks/alerts only
+need column-name tweaks where suffixes change. Track this before the Data
+Collector API's retirement date for your cloud.
+
+---
+
+## 10. Observe the proxy itself (before Azure sees a problem)
+
+The alerts here detect trouble *after* it shows up in Log Analytics. The
+earliest signal of the shock-absorber filling up lives on the proxy's own
+Logstash monitoring API (`:9600`, `API_PORT`):
+
+```bash
+curl -s http://<proxy>:9600/_node/stats/pipelines/f5-telemetry \
+  | jq '{events: .pipelines["f5-telemetry"].events,
+         queue: .pipelines["f5-telemetry"].queue}'
+```
+
+Key fields: `events.in` vs `events.out` (drain keeping up?), `queue.events` /
+`queue.queue_size_in_bytes` vs `LS_QUEUE_MAX_BYTES` (backlog growing toward the
+cap → imminent backpressure), and JVM/process stats under `/_node/stats/jvm`.
+Scrape this into Azure Monitor (Telegraf/AMA) or Prometheus so a **growing
+persistent queue** pages you *before* the downstream ingestion-lag alert (#5)
+fires. Also watch the container `HEALTHCHECK` and `F5Telemetry_DLQ_CL` being
+non-empty.
+
+---
+
+## 11. Tuning checklist (first week of operation)
 
 1. Let the tables fill for a few days, then set realistic floors:
    `ltmMinEvents` / `asmMinEvents` / `systemMinEvents` from your observed
    per-window minimums (the baseline tile in the health workbook helps).
-2. Adjust `ltm5xxThresholdPct`, `ltmLatencyP95Ms`, and `asmCriticalThreshold`
-   to your SLOs.
+2. Adjust `ltm5xxThresholdPct`, `ltmLatencyP95Ms`, `asmCriticalThreshold`, and
+   the `deviceCpuThresholdPct` / `deviceMemThresholdPct` saturation thresholds
+   to your SLOs and platform headroom.
 3. If WAF traffic is genuinely sparse, **disable** rule #4 or widen its window.
 4. Wire the Action Group, then test with a controlled stop of the proxy
    (`docker compose stop`) and confirm #1/#2 fire and auto-resolve on restart.
+5. Set per-table retention/tiers (§8) once you've observed real volumes.
 ```
