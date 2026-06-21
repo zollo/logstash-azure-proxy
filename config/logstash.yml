@@ -29,3 +29,21 @@ queue.max_bytes: "${LS_QUEUE_MAX_BYTES:60gb}"
 # Flush the durable write-ahead checkpoint on every write for maximum
 # durability of the persistent queue.
 queue.checkpoint.writes: 1
+
+# ---------------------------------------------------------------------------
+# Dead Letter Queue (DLQ)
+#
+# Events that a plugin cannot process (e.g. a mapping/serialization failure on
+# the way to Azure) are written here instead of being silently dropped — which
+# preserves the project's "never lose data" guarantee end to end. The `dlq`
+# pipeline (see pipelines.yml + dlq/dlq.conf) drains this directory and ships
+# the dead events to the F5Telemetry_DLQ_CL table so they are visible and
+# recoverable rather than aging out at `dead_letter_queue.max_bytes`.
+#
+# NOTE: the DLQ only receives events from plugins that implement the DLQ API
+# and from pipeline-level mapping errors; it is a safety net, not a catch-all.
+# Keep it on a persisted volume (LS_DLQ_PATH) so it survives restarts.
+# ---------------------------------------------------------------------------
+dead_letter_queue.enable: true
+path.dead_letter_queue: "${LS_DLQ_PATH:/var/lib/logstash/dlq}"
+dead_letter_queue.max_bytes: "${LS_DLQ_MAX_BYTES:1gb}"

@@ -1,0 +1,15 @@
+// LTM latency percentiles over time, per virtual server.
+// A widening p99–p50 gap points to tail latency / saturation rather than a
+// uniform slowdown.
+let lookback = 6h;
+let bin = 5m;
+F5Telemetry_LTM_CL
+| where TimeGenerated > ago(lookback)
+| summarize
+    P50 = round(percentile(response_ms_d, 50), 1),
+    P95 = round(percentile(response_ms_d, 95), 1),
+    P99 = round(percentile(response_ms_d, 99), 1),
+    Requests = count()
+    by bin(TimeGenerated, bin), VirtualServer = virtual_name_s
+| order by TimeGenerated asc
+| render timechart
