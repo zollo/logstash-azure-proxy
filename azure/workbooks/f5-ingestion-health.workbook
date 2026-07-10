@@ -129,7 +129,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_System_CL\n| where TimeGenerated {TimeRange}\n| summarize arg_max(TimeGenerated, *) by f5_device_hostname_s\n| project ['BIG-IP Host'] = f5_device_hostname_s,\n          Version = f5_device_version_s,\n          Failover = f5_device_failoverStatus_s,\n          Sync = f5_device_syncStatus_s,\n          ['Last Poll'] = TimeGenerated,\n          ['Min Since Poll'] = round((now() - TimeGenerated) / 1m, 1)\n| order by ['Min Since Poll'] desc",
+        "query": "F5Telemetry_System_CL\n| where TimeGenerated {TimeRange}\n| summarize arg_max(TimeGenerated, *) by f5_device_hostname\n| project ['BIG-IP Host'] = f5_device_hostname,\n          Version = f5_device_version,\n          Failover = f5_device_failoverStatus,\n          Sync = f5_device_syncStatus,\n          ['Last Poll'] = TimeGenerated,\n          ['Min Since Poll'] = round((now() - TimeGenerated) / 1m, 1)\n| order by ['Min Since Poll'] desc",
         "size": 0,
         "title": "BIG-IP fleet — last System Poller snapshot",
         "queryType": 0,
@@ -158,7 +158,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System')\n| where TimeGenerated {TimeRange}\n| extend Host = column_ifexists('f5_device_hostname_s', 'unknown')\n| summarize Events = count() by Host, Table\n| render barchart",
+        "query": "union isfuzzy=true\n  (F5Telemetry_LTM_CL    | extend Table = 'LTM'),\n  (F5Telemetry_ASM_CL    | extend Table = 'ASM'),\n  (F5Telemetry_System_CL | extend Table = 'System')\n| where TimeGenerated {TimeRange}\n| extend Host = column_ifexists('f5_device_hostname', 'unknown')\n| summarize Events = count() by Host, Table\n| render barchart",
         "size": 0,
         "title": "Events per BIG-IP device",
         "queryType": 0,

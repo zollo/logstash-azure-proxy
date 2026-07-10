@@ -1,19 +1,22 @@
 # syntax=docker/dockerfile:1
 
-# Logstash version is compatible with the microsoft-logstash-output-azure-loganalytics
-# plugin (supports 7.x, 8.0-8.9 and 8.11). Override at build time with --build-arg.
+# Logstash version compatible with the microsoft-sentinel-log-analytics-logstash
+# output plugin (supported on Logstash 7.x and 8.x). Override at build time with
+# --build-arg.
 ARG LOGSTASH_VERSION=8.11.4
 
 FROM docker.elastic.co/logstash/logstash:${LOGSTASH_VERSION}
 
 LABEL org.opencontainers.image.title="logstash-azure-proxy" \
-      org.opencontainers.image.description="Logstash with HTTP input, persistent queues and the Azure Log Analytics output plugin pre-installed" \
+      org.opencontainers.image.description="Logstash with HTTP input, persistent queues and the Microsoft Sentinel (Logs Ingestion API / DCR) output plugin pre-installed" \
       org.opencontainers.image.source="https://github.com/zollo/logstash-azure-proxy"
 
 # ---------------------------------------------------------------------------
-# Install the Azure Log Analytics output plugin
+# Install the Microsoft Sentinel output plugin (Logs Ingestion API + DCR).
+# This replaces the legacy microsoft-logstash-output-azure-loganalytics plugin
+# (HTTP Data Collector API), which Microsoft has placed on a retirement path.
 # ---------------------------------------------------------------------------
-RUN logstash-plugin install microsoft-logstash-output-azure-loganalytics
+RUN logstash-plugin install microsoft-sentinel-log-analytics-logstash-output-plugin
 
 # ---------------------------------------------------------------------------
 # Heap sizing: remove the hard-coded -Xms/-Xmx from the stock jvm.options so

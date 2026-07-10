@@ -246,7 +246,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "F5Telemetry_LTM_CL\n| summarize Total = count(), Errors = countif(response_code_d >= 500)\n| where Total >= 50\n| extend ErrorRatePct = round(100.0 * Errors / Total, 2)",
+              "query": "F5Telemetry_LTM_CL\n| summarize Total = count(), Errors = countif(response_code >= 500)\n| where Total >= 50\n| extend ErrorRatePct = round(100.0 * Errors / Total, 2)",
               "timeAggregation": "Total",
               "metricMeasureColumn": "ErrorRatePct",
               "operator": "GreaterThan",
@@ -277,7 +277,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "F5Telemetry_LTM_CL\n| summarize P95Ms = percentile(response_ms_d, 95), Requests = count()\n| where Requests >= 50",
+              "query": "F5Telemetry_LTM_CL\n| summarize P95Ms = percentile(response_ms, 95), Requests = count()\n| where Requests >= 50",
               "timeAggregation": "Total",
               "metricMeasureColumn": "P95Ms",
               "operator": "GreaterThan",
@@ -308,7 +308,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "F5Telemetry_ASM_CL\n| where severity_s == 'Critical' and request_status_s == 'blocked'\n| summarize Count = count() by ASMPolicy = policy_name_s",
+              "query": "F5Telemetry_ASM_CL\n| where severity == 'Critical' and request_status == 'blocked'\n| summarize Count = count() by ASMPolicy = policy_name",
               "timeAggregation": "Total",
               "metricMeasureColumn": "Count",
               "operator": "GreaterThan",
@@ -343,7 +343,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "F5Telemetry_System_CL\n| summarize arg_max(TimeGenerated, f5_device_failoverStatus_s, f5_device_syncStatus_s) by Host = f5_device_hostname_s\n| where f5_device_failoverStatus_s !in~ ('ACTIVE', 'STANDBY') or f5_device_syncStatus_s !in~ ('In Sync', 'Standalone')\n| summarize Count = count() by Host",
+              "query": "F5Telemetry_System_CL\n| summarize arg_max(TimeGenerated, f5_device_failoverStatus, f5_device_syncStatus) by Host = f5_device_hostname\n| where f5_device_failoverStatus !in~ ('ACTIVE', 'STANDBY') or f5_device_syncStatus !in~ ('In Sync', 'Standalone')\n| summarize Count = count() by Host",
               "timeAggregation": "Total",
               "metricMeasureColumn": "Count",
               "operator": "GreaterThan",
@@ -368,7 +368,7 @@
       "kind": "LogAlert",
       "properties": {
         "displayName": "[concat(parameters('namePrefix'), ' | BIG-IP device CPU/memory saturated')]",
-        "description": "The most recent System Poller snapshot for a BIG-IP shows system CPU or memory utilization above the configured threshold. Alerts split per device via the Host dimension. Relies on the f5_device_cpu_d / f5_device_memory_d columns promoted by the proxy's System Poller parsing (40-system.conf). Indicates the device is resource-constrained and at risk of dropping connections or shedding telemetry.",
+        "description": "The most recent System Poller snapshot for a BIG-IP shows system CPU or memory utilization above the configured threshold. Alerts split per device via the Host dimension. Relies on the f5_device_cpu / f5_device_memory columns promoted by the proxy's System Poller parsing (40-system.conf). Indicates the device is resource-constrained and at risk of dropping connections or shedding telemetry.",
         "severity": 2,
         "enabled": true,
         "evaluationFrequency": "PT5M",
@@ -377,7 +377,7 @@
         "criteria": {
           "allOf": [
             {
-              "query": "[concat('F5Telemetry_System_CL\\n| summarize arg_max(TimeGenerated, f5_device_cpu_d, f5_device_memory_d) by Host = f5_device_hostname_s\\n| where f5_device_cpu_d > ', parameters('deviceCpuThresholdPct'), ' or f5_device_memory_d > ', parameters('deviceMemThresholdPct'), '\\n| summarize Count = count() by Host')]",
+              "query": "[concat('F5Telemetry_System_CL\\n| summarize arg_max(TimeGenerated, f5_device_cpu, f5_device_memory) by Host = f5_device_hostname\\n| where f5_device_cpu > ', parameters('deviceCpuThresholdPct'), ' or f5_device_memory > ', parameters('deviceMemThresholdPct'), '\\n| summarize Count = count() by Host')]",
               "timeAggregation": "Total",
               "metricMeasureColumn": "Count",
               "operator": "GreaterThan",

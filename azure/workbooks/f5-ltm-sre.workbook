@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# F5 LTM — Traffic & Performance (SRE)\n\nGolden-signal view of **F5 BIG-IP LTM** request logs shipped by `logstash-azure-proxy` to the `F5Telemetry_LTM_CL` table.\n\n- **Traffic** — request rate by virtual server\n- **Latency** — p50 / p95 / p99 of `response_ms_d`\n- **Errors** — 4xx / 5xx rate\n- **Saturation** — throughput (bytes) per virtual server\n\nUse the filters below to scope by time, device, and virtual server."
+        "json": "# F5 LTM — Traffic & Performance (SRE)\n\nGolden-signal view of **F5 BIG-IP LTM** request logs shipped by `logstash-azure-proxy` to the `F5Telemetry_LTM_CL` table.\n\n- **Traffic** — request rate by virtual server\n- **Latency** — p50 / p95 / p99 of `response_ms`\n- **Errors** — 4xx / 5xx rate\n- **Saturation** — throughput (bytes) per virtual server\n\nUse the filters below to scope by time, device, and virtual server."
       },
       "name": "title"
     },
@@ -43,7 +43,7 @@
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| summarize by f5_device_hostname_s\n| order by f5_device_hostname_s asc",
+            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| summarize by f5_device_hostname\n| order by f5_device_hostname asc",
             "value": [ "*" ],
             "typeSettings": {
               "additionalResourceOptions": [ "value::all" ],
@@ -62,7 +62,7 @@
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| summarize by virtual_name_s\n| order by virtual_name_s asc",
+            "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| summarize by virtual_name\n| order by virtual_name asc",
             "value": [ "*" ],
             "typeSettings": {
               "additionalResourceOptions": [ "value::all" ],
@@ -83,7 +83,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            ['Client Errors (4xx)'] = countif(response_code_d between (400 .. 499)),\n            ['Server Errors (5xx)'] = countif(response_code_d >= 500),\n            ['p95 Latency (ms)'] = round(percentile(response_ms_d, 95), 0),\n            ['Throughput (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n| extend ['Error Rate (%)'] = iif(Requests == 0, 0.0, round(100.0 * (todouble(['Client Errors (4xx)']) + todouble(['Server Errors (5xx)'])) / Requests, 2))\n| project Requests, ['Error Rate (%)'], ['Server Errors (5xx)'], ['p95 Latency (ms)'], ['Throughput (MB)']\n| evaluate narrow()",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            ['Client Errors (4xx)'] = countif(response_code between (400 .. 499)),\n            ['Server Errors (5xx)'] = countif(response_code >= 500),\n            ['p95 Latency (ms)'] = round(percentile(response_ms, 95), 0),\n            ['Throughput (MB)'] = round(sum(response_size) / 1048576.0, 1)\n| extend ['Error Rate (%)'] = iif(Requests == 0, 0.0, round(100.0 * (todouble(['Client Errors (4xx)']) + todouble(['Server Errors (5xx)'])) / Requests, 2))\n| project Requests, ['Error Rate (%)'], ['Server Errors (5xx)'], ['p95 Latency (ms)'], ['Throughput (MB)']\n| evaluate narrow()",
         "size": 3,
         "title": "Service health — golden signals",
         "queryType": 0,
@@ -105,7 +105,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| extend Class = case(response_code_d >= 500, '5xx', response_code_d >= 400, '4xx', response_code_d >= 300, '3xx', response_code_d >= 200, '2xx', '1xx/other')\n| summarize Requests = count() by bin(TimeGenerated, 5m), Class\n| render timechart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| extend Class = case(response_code >= 500, '5xx', response_code >= 400, '4xx', response_code >= 300, '3xx', response_code >= 200, '2xx', '1xx/other')\n| summarize Requests = count() by bin(TimeGenerated, 5m), Class\n| render timechart",
         "size": 0,
         "title": "Request rate by response class",
         "queryType": 0,
@@ -119,7 +119,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize p50 = percentile(response_ms_d, 50),\n            p95 = percentile(response_ms_d, 95),\n            p99 = percentile(response_ms_d, 99)\n  by bin(TimeGenerated, 5m)\n| render timechart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize p50 = percentile(response_ms, 50),\n            p95 = percentile(response_ms, 95),\n            p99 = percentile(response_ms, 99)\n  by bin(TimeGenerated, 5m)\n| render timechart",
         "size": 0,
         "title": "Response latency percentiles (ms)",
         "queryType": 0,
@@ -133,7 +133,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Total = count(), Errors = countif(response_code_d >= 400) by bin(TimeGenerated, 5m)\n| extend ['Error Rate (%)'] = iif(Total == 0, real(null), round(100.0 * Errors / Total, 2))\n| project TimeGenerated, ['Error Rate (%)']\n| render timechart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Total = count(), Errors = countif(response_code >= 400) by bin(TimeGenerated, 5m)\n| extend ['Error Rate (%)'] = iif(Total == 0, real(null), round(100.0 * Errors / Total, 2))\n| project TimeGenerated, ['Error Rate (%)']\n| render timechart",
         "size": 0,
         "title": "Error rate (4xx + 5xx, %)",
         "queryType": 0,
@@ -147,7 +147,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by virtual_name_s\n| top 10 by Requests desc\n| render barchart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by virtual_name\n| top 10 by Requests desc\n| render barchart",
         "size": 0,
         "title": "Top 10 virtual servers by traffic",
         "queryType": 0,
@@ -161,7 +161,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| where response_code_d >= 400\n| summarize Errors = count(),\n            ['5xx'] = countif(response_code_d >= 500),\n            ['p95 ms'] = round(percentile(response_ms_d, 95), 0)\n  by URI = http_uri_s, ['Virtual Server'] = virtual_name_s\n| top 15 by Errors desc",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| where response_code >= 400\n| summarize Errors = count(),\n            ['5xx'] = countif(response_code >= 500),\n            ['p95 ms'] = round(percentile(response_ms, 95), 0)\n  by URI = http_uri, ['Virtual Server'] = virtual_name\n| top 15 by Errors desc",
         "size": 0,
         "title": "Top failing URIs",
         "queryType": 0,
@@ -180,7 +180,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            Errors = countif(response_code_d >= 400),\n            ['Bytes (MB)'] = round(sum(response_size_d) / 1048576.0, 1)\n  by ['Client IP'] = client_ip_s\n| extend ['Error %'] = round(100.0 * Errors / Requests, 1)\n| top 15 by Requests desc",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count(),\n            Errors = countif(response_code >= 400),\n            ['Bytes (MB)'] = round(sum(response_size) / 1048576.0, 1)\n  by ['Client IP'] = client_ip\n| extend ['Error %'] = round(100.0 * Errors / Requests, 1)\n| top 15 by Requests desc",
         "size": 0,
         "title": "Top clients by request volume",
         "queryType": 0,
@@ -194,7 +194,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name_s in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by ['Response Code'] = tostring(toint(response_code_d))\n| top 10 by Requests desc\n| render piechart",
+        "query": "F5Telemetry_LTM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (virtual_name in ({VirtualServer})) or ('*' in ({VirtualServer}))\n| summarize Requests = count() by ['Response Code'] = tostring(toint(response_code))\n| top 10 by Requests desc\n| render piechart",
         "size": 0,
         "title": "Response code distribution",
         "queryType": 0,

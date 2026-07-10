@@ -79,8 +79,11 @@ first write — see overview §5.)*
    container up, is the Azure output erroring on auth?
 3. Confirm the BIG-IP System Poller is enabled and pointed at the proxy
    ([`ts.json.example`](../../ts.json.example)).
-4. If the proxy is up but Azure is rejecting writes, check
-   `AZURE_WORKSPACE_ID` / `AZURE_WORKSPACE_KEY`.
+4. If the proxy is up but Azure is rejecting writes, check the Logs Ingestion
+   credentials (`AZURE_TENANT_ID` / `AZURE_CLIENT_ID` / `AZURE_CLIENT_SECRET` /
+   `AZURE_DCE_URI` / `AZURE_DCR_IMMUTABLE_ID`) — an expired client secret or a
+   missing **Monitoring Metrics Publisher** role on the DCR shows up as 401/403
+   in the container logs.
 
 ### 2. All F5 ingestion stopped — Sev 0 · 15m / 5m
 **Fires:** zero events across **all** F5 tables in 15 minutes. Full data-path
@@ -131,7 +134,7 @@ rather than a clock issue.
 `Total >= 50` volume guard so trickle traffic can't trip it.
 ```kql
 F5Telemetry_LTM_CL
-| summarize Total = count(), Errors = countif(response_code_d >= 500)
+| summarize Total = count(), Errors = countif(response_code >= 500)
 | where Total >= 50
 | extend ErrorRatePct = round(100.0 * Errors / Total, 2)
 ```
@@ -141,7 +144,7 @@ health and app logs. Adjust the `>= 50` guard in the query for your traffic
 floor.
 
 ### 7. LTM p95 latency degraded — Sev 2 · 15m / 5m
-**Fires:** p95 `response_ms_d` over `ltmLatencyP95Ms` (volume-guarded).
+**Fires:** p95 `response_ms` over `ltmLatencyP95Ms` (volume-guarded).
 **Runbook:** LTM workbook → **latency percentiles**; a widening p99–p50 gap
 points to tail latency / saturation. Check backend pool member load and BIG-IP
 CPU via the System workbook/snapshot.
@@ -151,8 +154,8 @@ CPU via the System workbook/snapshot.
 `asmCriticalThreshold` in 5 minutes. `muteActionsDuration: PT30M` damps a storm.
 ```kql
 F5Telemetry_ASM_CL
-| where severity_s == 'Critical' and request_status_s == 'blocked'
-| summarize Count = count() by ASMPolicy = policy_name_s
+| where severity == 'Critical' and request_status == 'blocked'
+| summarize Count = count() by ASMPolicy = policy_name
 ```
 **Runbook:** active campaign against the named app. ASM workbook → **Top
 attackers / attack types / signatures**, scoped to that policy. Decide on
@@ -163,8 +166,8 @@ blocking the source(s), tightening the policy, or escalating to security.
 **or** sync not in `In Sync/Standalone`.
 ```kql
 F5Telemetry_System_CL
-| summarize arg_max(TimeGenerated, f5_device_failoverStatus_s, f5_device_syncStatus_s) by Host = f5_device_hostname_s
-| where f5_device_failoverStatus_s !in~ ('ACTIVE','STANDBY') or f5_device_syncStatus_s !in~ ('In Sync','Standalone')
+| summarize arg_max(TimeGenerated, f5_device_failoverStatus, f5_device_syncStatus) by Host = f5_device_hostname
+| where f5_device_failoverStatus !in~ ('ACTIVE','STANDBY') or f5_device_syncStatus !in~ ('In Sync','Standalone')
 | summarize Count = count() by Host
 ```
 **Runbook:** catches failovers, `FORCED_OFFLINE` nodes, and `Changes
@@ -175,13 +178,13 @@ expected during planned maintenance (acknowledge to mute).
 ### 10. BIG-IP device CPU/memory saturated — Sev 2 · 15m / 5m · split by **Host**
 **Fires:** the latest System Poller snapshot for a device reports system CPU
 over `deviceCpuThresholdPct` **or** memory over `deviceMemThresholdPct`.
-**Depends on** the numeric `f5_device_cpu_d` / `f5_device_memory_d` columns the
+**Depends on** the numeric `f5_device_cpu` / `f5_device_memory` columns the
 proxy promotes from the System Poller snapshot
 ([`40-system.conf`](../../pipeline/40-system.conf)).
 ```kql
 F5Telemetry_System_CL
-| summarize arg_max(TimeGenerated, f5_device_cpu_d, f5_device_memory_d) by Host = f5_device_hostname_s
-| where f5_device_cpu_d > 85 or f5_device_memory_d > 90
+| summarize arg_max(TimeGenerated, f5_device_cpu, f5_device_memory) by Host = f5_device_hostname
+| where f5_device_cpu > 85 or f5_device_memory > 90
 | summarize Count = count() by Host
 ```
 **Runbook:** the device is resource-constrained and may start dropping

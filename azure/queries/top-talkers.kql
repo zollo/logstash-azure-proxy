@@ -6,10 +6,10 @@ F5Telemetry_LTM_CL
 | where TimeGenerated > ago(lookback)
 | summarize
     Requests   = count(),
-    Bytes      = sum(response_size_d),
-    P95Ms      = round(percentile(response_ms_d, 95), 1),
-    ErrRatePct = round(100.0 * countif(response_code_d >= 500) / count(), 2),
-    Country    = take_any(f5_src_country_s)
-    by Client = f5_src_ip_s, VirtualServer = virtual_name_s
+    Bytes      = sum(response_size),
+    P95Ms      = round(percentile(response_ms, 95), 1),
+    ErrRatePct = round(100.0 * countif(response_code >= 500) / count(), 2),
+    Country    = take_any(f5_src_country)
+    by Client = f5_src_ip, VirtualServer = virtual_name
 | top topN by Requests desc
 | order by Requests desc
