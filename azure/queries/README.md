@@ -6,8 +6,8 @@ high-value logic in a form you can paste into the **Logs** blade, attach to a
 custom alert, or save as a **workspace function** for everyone to reuse.
 
 Read the [data model](../README.md#2-data-model-how-f5-fields-land-in-log-analytics)
-first — column suffixes (`_s` / `_d`), the normalized `f5_*` columns, and the
-ASM array handling all matter here.
+first — the explicitly-typed (suffix-free) columns, the normalized `f5_*`
+columns, and the ASM `dynamic` array handling all matter here.
 
 ## Catalog
 
@@ -15,10 +15,10 @@ ASM array handling all matter here.
 | ---- | -------- | --------------- |
 | [`ingestion-freshness.kql`](ingestion-freshness.kql) | all | Last event time + event→index lag per table. Is data flowing and on time? |
 | [`top-talkers.kql`](top-talkers.kql) | LTM | Busiest client IPs, virtual servers, and URIs. |
-| [`ltm-error-budget.kql`](ltm-error-budget.kql) | LTM | Success rate vs. an SLO target over time (uses `response_code_class_s`). |
+| [`ltm-error-budget.kql`](ltm-error-budget.kql) | LTM | Success rate vs. an SLO target over time (uses `response_code_class`). |
 | [`ltm-latency-percentiles.kql`](ltm-latency-percentiles.kql) | LTM | p50/p95/p99 `response_ms` trend, by virtual server. |
 | [`asm-attack-triage.kql`](asm-attack-triage.kql) | ASM | Top attackers / attack types / signatures, with array fields exploded. |
-| [`pivot-by-client-ip.kql`](pivot-by-client-ip.kql) | LTM+ASM+AFM | Everything one source IP did, across modules (uses `f5_src_ip_s`). |
+| [`pivot-by-client-ip.kql`](pivot-by-client-ip.kql) | LTM+ASM+AFM | Everything one source IP did, across modules (uses `f5_src_ip`). |
 | [`device-saturation.kql`](device-saturation.kql) | System | Latest CPU/memory per BIG-IP (drives alert #10). |
 | [`dlq-health.kql`](dlq-health.kql) | DLQ | Are events failing to process? Reasons + offending plugin. |
 

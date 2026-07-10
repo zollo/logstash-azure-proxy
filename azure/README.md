@@ -51,64 +51,72 @@ consistent story.
 
 ## 2. Data model: how F5 fields land in Log Analytics
 
-The proxy uses the `microsoft-logstash-output-azure-loganalytics` plugin, which
-sends to the **Azure Monitor HTTP Data Collector API**. Two behaviors of that
-API drive every query in this directory:
+The proxy uses the `microsoft-sentinel-log-analytics-logstash-output-plugin`,
+which sends to the **Azure Monitor Logs Ingestion API** via a **Data Collection
+Rule (DCR)**. The DCR schema (provisioned by [`../terraform/`](../terraform))
+defines every column *explicitly*, which shapes the queries in this directory:
 
-### 2.1 Table names get a `_CL` suffix
+### 2.1 Table names end in `_CL`
 
-The proxy writes per-category tables (overridable via `AZURE_TABLE_*`). Azure
-appends `_CL` ("custom log"):
+The proxy writes one custom table per category. Custom-log table names carry the
+`_CL` suffix, and each is fed by a DCR stream named `Custom-<table>`:
 
-| F5 category | Proxy table name      | Log Analytics table        |
-| ----------- | --------------------- | -------------------------- |
-| LTM         | `F5Telemetry_LTM`     | `F5Telemetry_LTM_CL`       |
-| ASM         | `F5Telemetry_ASM`     | `F5Telemetry_ASM_CL`       |
-| systemInfo  | `F5Telemetry_System`  | `F5Telemetry_System_CL`    |
-| AFM         | `F5Telemetry_AFM`     | `F5Telemetry_AFM_CL`       |
-| APM         | `F5Telemetry_APM`     | `F5Telemetry_APM_CL`       |
-| AVR         | `F5Telemetry_AVR`     | `F5Telemetry_AVR_CL`       |
-| _fallback_  | `F5Telemetry_Event`   | `F5Telemetry_Event_CL`     |
-| _dead-letter_ | `F5Telemetry_DLQ`   | `F5Telemetry_DLQ_CL`       |
+| F5 category | Log Analytics table        | DCR stream (`AZURE_STREAM_*`)      |
+| ----------- | -------------------------- | ---------------------------------- |
+| LTM         | `F5Telemetry_LTM_CL`       | `Custom-F5Telemetry_LTM_CL`        |
+| ASM         | `F5Telemetry_ASM_CL`       | `Custom-F5Telemetry_ASM_CL`        |
+| systemInfo  | `F5Telemetry_System_CL`    | `Custom-F5Telemetry_System_CL`     |
+| AFM         | `F5Telemetry_AFM_CL`       | `Custom-F5Telemetry_AFM_CL`        |
+| APM         | `F5Telemetry_APM_CL`       | `Custom-F5Telemetry_APM_CL`        |
+| AVR         | `F5Telemetry_AVR_CL`       | `Custom-F5Telemetry_AVR_CL`        |
+| _fallback_  | `F5Telemetry_Event_CL`     | `Custom-F5Telemetry_Event_CL`      |
+| _dead-letter_ | `F5Telemetry_DLQ_CL`     | `Custom-F5Telemetry_DLQ_CL`        |
 
-> **If you overrode `AZURE_TABLE_*`** in the proxy, find-and-replace the table
-> names in the `.workbook` files and `azuredeploy.json` before importing.
+> **If you changed `table_prefix`** in the Terraform module, find-and-replace the
+> table names in the `.workbook` files and `azuredeploy.json` before importing.
 
-### 2.2 Columns get a type suffix
+### 2.2 Columns are explicitly typed — no suffixes
 
-The Data Collector API infers each column's type from the JSON value and
-appends a suffix. This is why every field in our queries ends in `_s`, `_d`,
-etc.:
+Unlike the retired HTTP Data Collector API (which inferred types and appended
+`_s` / `_d` / `_t` suffixes), the DCR declares each column with a real type. So
+queries use the **plain field name** the pipeline emits — `client_ip`,
+`response_ms`, `f5_src_ip` — with **no suffix**. Column types come straight from
+the DCR schema in [`../terraform/locals.tf`](../terraform/locals.tf):
 
-| Suffix | Type     | Example column        |
-| ------ | -------- | --------------------- |
-| `_s`   | string   | `client_ip_s`         |
-| `_d`   | double / number | `response_ms_d` |
-| `_b`   | boolean  | —                     |
-| `_t`   | datetime | —                     |
-| `_g`   | GUID     | `f5_device_machineId_g` (if detected) |
+| DCR / KQL type | Used for |
+| -------------- | -------- |
+| `string`   | text fields (`client_ip`, `policy_name`, …) |
+| `int` / `long` | counters and codes (`response_code`, `response_ms`, `f5_device_cpu`) |
+| `real`     | fractional metrics |
+| `datetime` | `TimeGenerated` |
+| `dynamic`  | arrays & nested objects (ASM violation arrays, the System `system` snapshot) |
 
-Every record also has the standard columns `TimeGenerated` (mapped from the F5
-event's own timestamp via the proxy's `EventTime` field), `Type`, and
-`TenantId`.
+Every record also has the standard columns `TimeGenerated` (set by the pipeline
+in [`80-finalize.conf`](../pipeline/80-finalize.conf)), `Type`, and `TenantId`.
 
-### 2.3 Multi-value ASM fields are serialized arrays
+> **Migrating from the old suffixed schema?** Drop the suffix everywhere:
+> `client_ip_s` → `client_ip`, `response_code_d` → `response_code`,
+> `f5_src_ip_s` → `f5_src_ip`. The queries, workbooks and alerts in this
+> directory are already on the clean names.
+
+### 2.3 Multi-value ASM fields are real arrays
 
 The pipeline splits comma-delimited ASM fields (`violations`, `sub_violations`,
-`attack_type`, `sig_ids`, `sig_names`, `staged_sig_ids`) into **arrays**. The
-Data Collector API stores an array as a **JSON-encoded string** in a single
-`_s` column, e.g.:
+`attack_type`, `sig_ids`, `sig_names`, `staged_sig_ids`) into **arrays**, and the
+DCR declares those columns as `dynamic` — so they arrive as genuine KQL arrays
+you can `mv-expand` directly:
 
 ```text
-attack_type_s = ["Detection Evasion","Path Traversal"]
+attack_type = ["Detection Evasion","Path Traversal"]
 ```
 
-A field with a single value (no comma) stays a plain scalar string. The ASM
-workbook and the docs therefore normalize **both shapes** before exploding:
+A field with a single value (no comma) arrives as a scalar. The ASM workbook and
+docs normalize **both shapes** before exploding, which is safe on a `dynamic`
+column whether the value is an array or a lone string:
 
 ```kql
-| extend _arr = todynamic(attack_type_s)
-| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(attack_type_s))
+| extend _arr = todynamic(attack_type)
+| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(attack_type))
 | mv-expand AttackType = _arr to typeof(string)
 ```
 
@@ -121,25 +129,25 @@ ASM, and AFM:
 
 | Column | Filled from (per module) | Meaning |
 | ------ | ------------------------ | ------- |
-| `f5_src_ip_s` | LTM `client_ip` · ASM `ip_client` · AFM `source_ip` | Client / attacker / source IP |
-| `f5_dest_ip_s` | LTM `server_ip` · ASM/AFM `dest_ip` | Pool member / destination IP |
-| `f5_http_method_s` | LTM `http_method` · ASM `method` | HTTP verb |
-| `f5_response_code_d` | `response_code` | HTTP status (numeric) |
-| `f5_src_country_s`, `f5_src_city_s` | GeoIP of `f5_src_ip` | Source geo (public IPs only) |
-| `f5_telemetry_category_s` | classifier | LTM / ASM / systemInfo / … |
-| `f5_device_hostname_s` | `hostname` / `system.hostname` | Originating BIG-IP |
-| `f5_collector_s` | constant | `logstash-azure-proxy` (`-dlq` for DLQ rows) |
+| `f5_src_ip` | LTM `client_ip` · ASM `ip_client` · AFM `source_ip` | Client / attacker / source IP |
+| `f5_dest_ip` | LTM `server_ip` · ASM/AFM `dest_ip` | Pool member / destination IP |
+| `f5_http_method` | LTM `http_method` · ASM `method` | HTTP verb |
+| `f5_response_code` | `response_code` | HTTP status (numeric) |
+| `f5_src_country`, `f5_src_city` | GeoIP of `f5_src_ip` | Source geo (public IPs only) |
+| `f5_telemetry_category` | classifier | LTM / ASM / systemInfo / … |
+| `f5_device_hostname` | `hostname` / `system.hostname` | Originating BIG-IP |
+| `f5_collector` | constant | `logstash-azure-proxy` (`-dlq` for DLQ rows) |
 
 > **GeoIP** is applied only to public source IPs (RFC1918 / loopback / CGNAT
-> ranges are skipped), so internal traffic simply has no `f5_src_country_s`.
-> This is richer than ASM's F5-supplied `geo_location_s` (country code only)
+> ranges are skipped), so internal traffic simply has no `f5_src_country`.
+> This is richer than ASM's F5-supplied `geo_location` (country code only)
 > and is the only geo signal available for LTM. Example "what else did this
 > attacker touch" pivot:
 > ```kql
 > let ip = "198.51.100.23";
 > union isfuzzy=true (F5Telemetry_LTM_CL), (F5Telemetry_ASM_CL), (F5Telemetry_AFM_CL)
-> | where f5_src_ip_s == ip
-> | project TimeGenerated, f5_telemetry_category_s, f5_dest_ip_s, f5_http_method_s, f5_response_code_d
+> | where f5_src_ip == ip
+> | project TimeGenerated, f5_telemetry_category, f5_dest_ip, f5_http_method, f5_response_code
 > | order by TimeGenerated desc
 > ```
 
@@ -149,7 +157,7 @@ F5 emits literal `"N/A"` / `"-"` / empty strings for inapplicable attributes
 (e.g. `username`, `x_forwarded_for_header_value`). The proxy
 ([`12-clean.conf`](../pipeline/12-clean.conf)) drops these top-level fields, so
 those columns are simply **absent** on records they don't apply to — filter with
-`isnotempty(username_s)` rather than `username_s != "N/A"`.
+`isnotempty(username)` rather than `username != "N/A"`.
 
 ### 2.6 Field reference (the columns the dashboards/alerts rely on)
 
@@ -157,62 +165,63 @@ those columns are simply **absent** on records they don't apply to — filter wi
 
 | Column | Meaning |
 | ------ | ------- |
-| `f5_device_hostname_s` | BIG-IP hostname |
-| `virtual_name_s` | Virtual server |
-| `client_ip_s`, `client_port_d` | Client source |
-| `server_ip_s`, `server_port_d` | Selected pool member |
-| `http_method_s`, `http_uri_s`, `protocol_s` | Request |
-| `response_code_d` | HTTP status (numeric) |
-| `response_code_class_s` | Status bucket (`2xx`/`3xx`/`4xx`/`5xx`), derived once in the pipeline |
-| `response_ms_d` | Server-side response time (ms) |
-| `response_size_d`, `request_size_d` | Bytes |
+| `f5_device_hostname` | BIG-IP hostname |
+| `virtual_name` | Virtual server |
+| `client_ip`, `client_port` | Client source |
+| `server_ip`, `server_port` | Selected pool member |
+| `http_method`, `http_uri`, `protocol` | Request |
+| `response_code` | HTTP status (numeric) |
+| `response_code_class` | Status bucket (`2xx`/`3xx`/`4xx`/`5xx`), derived once in the pipeline |
+| `response_ms` | Server-side response time (ms) |
+| `response_size`, `request_size` | Bytes |
 
 **`F5Telemetry_ASM_CL`** (parsed in [`30-asm.conf`](../pipeline/30-asm.conf))
 
 | Column | Meaning |
 | ------ | ------- |
-| `f5_device_hostname_s` | BIG-IP hostname |
-| `policy_name_s`, `web_application_name_s` | WAF policy |
-| `request_status_s` | `blocked` / `alerted` / `passed` |
-| `severity_s` | `Critical` / `Error` / `Warning` / … |
-| `violation_rating_d` | 1–5 (5 = most likely a real attack) |
-| `attack_type_s`, `violations_s`, `sub_violations_s` | Arrays (see 2.3) |
-| `sig_ids_s`, `sig_names_s` | Triggered signatures (arrays) |
-| `ip_client_s`, `geo_location_s` | Attacker source + country |
-| `src_port_d`, `dest_ip_s`, `dest_port_d` | Connection |
-| `method_s`, `response_code_d`, `support_id_s` | Request + correlation id |
+| `f5_device_hostname` | BIG-IP hostname |
+| `policy_name`, `web_application_name` | WAF policy |
+| `request_status` | `blocked` / `alerted` / `passed` |
+| `severity` | `Critical` / `Error` / `Warning` / … |
+| `violation_rating` | 1–5 (5 = most likely a real attack) |
+| `attack_type`, `violations`, `sub_violations` | Arrays (see 2.3) |
+| `sig_ids`, `sig_names` | Triggered signatures (arrays) |
+| `ip_client`, `geo_location` | Attacker source + country |
+| `src_port`, `dest_ip`, `dest_port` | Connection |
+| `method`, `response_code`, `support_id` | Request + correlation id |
 
 **`F5Telemetry_System_CL`** (parsed in [`40-system.conf`](../pipeline/40-system.conf))
 
 | Column | Meaning |
 | ------ | ------- |
-| `f5_device_hostname_s` | BIG-IP hostname |
-| `f5_device_version_s` | TMOS version |
-| `f5_device_failoverStatus_s` | `ACTIVE` / `STANDBY` / `FORCED_OFFLINE` / … |
-| `f5_device_syncStatus_s` | `In Sync` / `Standalone` / `Changes Pending` / … |
-| `f5_device_cpu_d` | System CPU utilization (%) |
-| `f5_device_memory_d` | System memory utilization (%) |
-| `f5_device_tmm_cpu_d` | TMM (data-plane) CPU utilization (%) |
-| `f5_device_tmm_memory_d` | TMM memory utilization (%) |
+| `f5_device_hostname` | BIG-IP hostname |
+| `f5_device_version` | TMOS version |
+| `f5_device_failoverStatus` | `ACTIVE` / `STANDBY` / `FORCED_OFFLINE` / … |
+| `f5_device_syncStatus` | `In Sync` / `Standalone` / `Changes Pending` / … |
+| `f5_device_cpu` | System CPU utilization (%) |
+| `f5_device_memory` | System memory utilization (%) |
+| `f5_device_tmm_cpu` | TMM (data-plane) CPU utilization (%) |
+| `f5_device_tmm_memory` | TMM memory utilization (%) |
 
-> The four `*_d` saturation metrics are promoted to **numeric** columns
+> The four saturation metrics are promoted to **numeric** columns
 > ([`40-system.conf`](../pipeline/40-system.conf)) so you can chart and alert on
-> device load directly (alert #10) — no `parse_json` required. The rest of the
-> nested snapshot (virtualServers, pools, profiles) is still preserved as
-> JSON-string columns (e.g. `system_s`); parse with `parse_json(system_s)` for
-> those deeper metrics.
+> device load directly (alert #10). The deeper snapshot is preserved in the
+> `dynamic` columns `system`, `virtualServers`, and `pools` — index into them
+> directly (e.g. `system.tmmTraffic.clientSideTraffic`), no `parse_json`
+> required. To capture more nested keys, add `dynamic` columns to the System
+> table in [`../terraform/locals.tf`](../terraform/locals.tf).
 
 **`F5Telemetry_DLQ_CL`** (drained by [`dlq/dlq.conf`](../dlq/dlq.conf))
 
 | Column | Meaning |
 | ------ | ------- |
-| `f5_dlq_reason_s` | Why the event could not be processed |
-| `f5_dlq_plugin_id_s` | The plugin that rejected it |
-| `f5_dlq_entry_time_s` | When it entered the Dead Letter Queue |
+| `f5_dlq_reason` | Why the event could not be processed |
+| `f5_dlq_plugin_id` | The plugin that rejected it |
+| `f5_dlq_entry_time` | When it entered the Dead Letter Queue |
 
 > Events the main pipeline cannot process land here instead of being dropped.
 > **This table should normally be empty** — a non-zero count is itself an alert
-> condition (see the KQL cookbook). Inspect `f5_dlq_reason_s` to diagnose, fix
+> condition (see the KQL cookbook). Inspect `f5_dlq_reason` to diagnose, fix
 > the pipeline, and the original payload is preserved for replay.
 
 ---
@@ -353,7 +362,7 @@ accepting the workspace default:
 
 | Table | Volume | Suggested plan | Rationale |
 | ----- | ------ | -------------- | --------- |
-| `F5Telemetry_LTM_CL` | **High** (per-request) | **Basic / Auxiliary Logs** + short interactive retention, archive the rest | High-cardinality request logs; mostly queried recently or in bulk for forensics. |
+| `F5Telemetry_LTM_CL` | **High** (per-request) | **Basic Logs** + short interactive retention, archive the rest | High-cardinality request logs; mostly queried recently or in bulk for forensics. |
 | `F5Telemetry_ASM_CL` | Medium, bursty | **Analytics** (full) | Security data — needs full KQL, joins, and longer interactive retention. |
 | `F5Telemetry_System_CL` | Low (~1/min/device) | **Analytics** (full) | Cheap, and the heartbeat/health/saturation signal everything else triages against. |
 | `F5Telemetry_DLQ_CL` | ~0 (should be empty) | **Analytics** (full) | Tiny; you want it instantly queryable when it's non-empty. |
@@ -368,41 +377,46 @@ Practical levers:
   ingestion cost (with query-time and feature trade-offs; alerts #6/#7 run over
   recent data and are unaffected).
 - Trim noise **before** ingestion (cheapest GB is the one you don't send): drop
-  fields you never query in the pipeline. Placeholder cleanup (§2.5) already
+  fields you never query in the pipeline, or simply don't declare them in the
+  DCR table schema ([`../terraform/locals.tf`](../terraform/locals.tf)) — an
+  undeclared column is never ingested. Placeholder cleanup (§2.5) already
   removes empty/`N/A` columns.
 
-> **Note on Basic/Auxiliary tiers:** these are a property of **DCR-based** tables
-> (Logs Ingestion API). Tables created by the legacy HTTP Data Collector API
-> (how this proxy writes today) are classic custom-log tables and may not expose
-> every tier option — another reason to plan the migration in §9.
+> **Per-table tiering is a first-class DCR feature.** Set each table's plan with
+> the `table_plan` variable in the Terraform module (e.g. `{ LTM = "Basic" }`),
+> and its retention with `table_retention_in_days` / `table_total_retention_in_days`.
 
 ---
 
-## 9. Roadmap: migrate off the HTTP Data Collector API → DCR
+## 9. Architecture: Logs Ingestion API + Data Collection Rules
 
-The `microsoft-logstash-output-azure-loganalytics` plugin writes through the
-**Azure Monitor HTTP Data Collector API** (workspace ID + shared key). Microsoft
-has placed that API on a **deprecation / retirement path** in favor of the
-**Logs Ingestion API with Data Collection Rules (DCR)**. Beyond lifecycle
-hygiene, DCRs materially improve the *consumer* experience:
+The proxy ships with the `microsoft-sentinel-log-analytics-logstash-output-plugin`,
+which writes through the **Logs Ingestion API with Data Collection Rules (DCR)** —
+the modern replacement for the retired HTTP Data Collector API (workspace ID +
+shared key). Beyond lifecycle hygiene, this materially improves the *consumer*
+experience:
 
-- **Explicit, typed schemas** — you define columns and types in the DCR, so the
-  `_s` / `_d` suffix guessing and the array-as-JSON-string handling (§2.3)
-  largely go away; `attack_type` can be a real `dynamic` array column.
-- **Ingestion-time transforms** (KQL) — drop/rename/redact at ingest, server
-  side, complementing the pipeline.
+- **Explicit, typed schemas** — columns and types are defined in the DCR
+  ([`../terraform/locals.tf`](../terraform/locals.tf)), so the old `_s` / `_d`
+  suffix guessing is gone and the ASM violation fields are real `dynamic` arrays
+  (§2.3).
+- **Ingestion-time transforms** (KQL) — the DCR can drop/rename/redact at ingest,
+  server side. This proxy uses an identity transform (`source`) because the
+  pipeline already shapes every field, but the hook is there.
 - **Entra ID auth** instead of a shared workspace key (addresses the project
   README's "prefer the keystore" security note).
 - **Per-table tiering** (§8) is a first-class DCR feature.
 
-**Migration sketch (no action required today):** create a DCR + Data Collection
-Endpoint with a stream/transform per F5 table, then point the output at it — via
-a community Logs-Ingestion Logstash output, an HTTP output to the DCE
-`/dataCollectionRules/.../streams/...:ingest` endpoint, or by fronting with the
-Azure Monitor Agent. The pipeline (input → classify → parse → normalize) is
-unchanged; **only `90-output.conf` is rewritten**, and the workbooks/alerts only
-need column-name tweaks where suffixes change. Track this before the Data
-Collector API's retirement date for your cloud.
+The DCR, Data Collection Endpoint, custom tables, and the ingesting service
+principal are all provisioned by the [`../terraform/`](../terraform) module; its
+outputs populate the container's `AZURE_*` environment variables. The pipeline
+(input → classify → parse → normalize) is unchanged from the Data Collector era;
+only `90-output.conf` and the table schemas differ.
+
+> **Extending a table's schema.** Because undeclared columns are dropped at
+> ingestion, any new field you promote in the pipeline must also be added to the
+> matching list in [`../terraform/locals.tf`](../terraform/locals.tf) and applied
+> before it will appear in Log Analytics.
 
 ---
 

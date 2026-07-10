@@ -7,7 +7,7 @@ union isfuzzy=true (F5Telemetry_DLQ_CL)
 | summarize
     Failed   = count(),
     LastSeen = max(TimeGenerated)
-    by Reason = f5_dlq_reason_s, Plugin = f5_dlq_plugin_id_s
+    by Reason = f5_dlq_reason, Plugin = f5_dlq_plugin_id
 | order by Failed desc
 // For a no-data-safe alert metric (always returns one row, even when empty):
 //   union isfuzzy=true (F5Telemetry_DLQ_CL)

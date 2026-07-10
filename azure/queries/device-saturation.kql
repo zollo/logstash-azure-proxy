@@ -1,24 +1,25 @@
 // BIG-IP device saturation: latest CPU/memory per device, plus a short trend.
-// Backs alert #10. Relies on the numeric f5_device_*_d columns the proxy
-// promotes from the System Poller snapshot (40-system.conf).
+// Backs alert #10. Relies on the numeric f5_device_cpu / f5_device_memory /
+// f5_device_tmm_cpu / f5_device_tmm_memory columns the proxy promotes from the
+// System Poller snapshot (40-system.conf).
 let lookback = 1h;
 // Latest snapshot per device (the at-a-glance fleet view):
 F5Telemetry_System_CL
 | where TimeGenerated > ago(lookback)
 | summarize arg_max(TimeGenerated,
-        f5_device_cpu_d, f5_device_memory_d,
-        f5_device_tmm_cpu_d, f5_device_tmm_memory_d,
-        f5_device_failoverStatus_s, f5_device_version_s)
-    by Host = f5_device_hostname_s
+        f5_device_cpu, f5_device_memory,
+        f5_device_tmm_cpu, f5_device_tmm_memory,
+        f5_device_failoverStatus, f5_device_version)
+    by Host = f5_device_hostname
 | project Host, TimeGenerated,
-        CpuPct = f5_device_cpu_d, MemPct = f5_device_memory_d,
-        TmmCpuPct = f5_device_tmm_cpu_d, TmmMemPct = f5_device_tmm_memory_d,
-        Failover = f5_device_failoverStatus_s, Version = f5_device_version_s
+        CpuPct = f5_device_cpu, MemPct = f5_device_memory,
+        TmmCpuPct = f5_device_tmm_cpu, TmmMemPct = f5_device_tmm_memory,
+        Failover = f5_device_failoverStatus, Version = f5_device_version
 | order by CpuPct desc
 
 // --- Trend variant (swap in for charting): -------------------------------
 // F5Telemetry_System_CL
 // | where TimeGenerated > ago(6h)
-// | summarize Cpu = avg(f5_device_cpu_d), Mem = avg(f5_device_memory_d)
-//     by bin(TimeGenerated, 5m), Host = f5_device_hostname_s
+// | summarize Cpu = avg(f5_device_cpu), Mem = avg(f5_device_memory)
+//     by bin(TimeGenerated, 5m), Host = f5_device_hostname
 // | render timechart

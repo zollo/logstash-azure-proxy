@@ -1,5 +1,5 @@
 // LTM availability / error budget against an SLO target.
-// Uses the pre-derived response_code_class_s bucket so 5xx accounting is
+// Uses the pre-derived response_code_class bucket so 5xx accounting is
 // consistent with the alerts. Tune sloTarget to your objective.
 let lookback = 24h;
 let bin = 15m;
@@ -8,7 +8,7 @@ F5Telemetry_LTM_CL
 | where TimeGenerated > ago(lookback)
 | summarize
     Total  = count(),
-    Errors = countif(response_code_class_s == "5xx")
+    Errors = countif(response_code_class == "5xx")
     by bin(TimeGenerated, bin)
 | extend SuccessPct = round(100.0 * (Total - Errors) / Total, 3)
 | extend BudgetBurn = round((sloTarget - SuccessPct), 3)   // >0 = below SLO this bin

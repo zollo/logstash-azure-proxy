@@ -6,16 +6,16 @@ let lookback = 6h;
 let topN = 25;
 F5Telemetry_ASM_CL
 | where TimeGenerated > ago(lookback)
-| where request_status_s == "blocked"      // drop the filter to include alerted/passed
-| extend _at = todynamic(attack_type_s)
-| extend _at = iif(gettype(_at) == "array", _at, pack_array(attack_type_s))
+| where request_status == "blocked"      // drop the filter to include alerted/passed
+| extend _at = todynamic(attack_type)
+| extend _at = iif(gettype(_at) == "array", _at, pack_array(attack_type))
 | mv-expand AttackType = _at to typeof(string)
 | summarize
     Events     = count(),
-    Critical   = countif(severity_s == "Critical"),
-    Policies   = dcount(policy_name_s),
-    Countries  = make_set(geo_location_s, 10),
+    Critical   = countif(severity == "Critical"),
+    Policies   = dcount(policy_name),
+    Countries  = make_set(geo_location, 10),
     LastSeen   = max(TimeGenerated)
-    by Attacker = f5_src_ip_s, AttackType
+    by Attacker = f5_src_ip, AttackType
 | top topN by Events desc
 | order by Events desc

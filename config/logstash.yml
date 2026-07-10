@@ -13,7 +13,9 @@ node.name: "${LS_NODE_NAME:logstash-azure-proxy}"
 api.http.host: "0.0.0.0"
 api.http.port: 9600
 
-# The Azure Log Analytics output plugin recommends disabling ECS on Logstash 8.
+# Disable ECS on Logstash 8 so the pipeline emits exactly the fields declared in
+# the DCR stream schemas (no ecs-prefixed additions that would be dropped at
+# ingestion). Also avoids the geoip/http filters injecting an `[event]` object.
 pipeline.ecs_compatibility: disabled
 
 # ---------------------------------------------------------------------------

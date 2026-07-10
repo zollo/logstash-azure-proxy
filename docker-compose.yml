@@ -36,23 +36,35 @@ services:
       # --- JVM heap: a majority (75%) of the container memory limit -------
       LS_JAVA_OPTS: ${LS_JAVA_OPTS:--XX:InitialRAMPercentage=75 -XX:MinRAMPercentage=75 -XX:MaxRAMPercentage=75}
 
-      # --- Azure Log Analytics output ------------------------------------
-      AZURE_WORKSPACE_ID: ${AZURE_WORKSPACE_ID:?AZURE_WORKSPACE_ID is required}
-      AZURE_WORKSPACE_KEY: ${AZURE_WORKSPACE_KEY:?AZURE_WORKSPACE_KEY is required}
-      AZURE_FLUSH_INTERVAL: ${AZURE_FLUSH_INTERVAL:-5}
-      AZURE_MAX_ITEMS: ${AZURE_MAX_ITEMS:-2000}
+      # --- Microsoft Sentinel output (Logs Ingestion API / DCR) ----------
+      # These five values come straight from the Terraform module outputs
+      # (see terraform/). The client secret is sensitive — prefer the Logstash
+      # keystore or a Docker/Compose secret over a plaintext .env in production.
+      AZURE_TENANT_ID: ${AZURE_TENANT_ID:?AZURE_TENANT_ID is required}
+      AZURE_CLIENT_ID: ${AZURE_CLIENT_ID:?AZURE_CLIENT_ID is required}
+      AZURE_CLIENT_SECRET: ${AZURE_CLIENT_SECRET:?AZURE_CLIENT_SECRET is required}
+      AZURE_DCE_URI: ${AZURE_DCE_URI:?AZURE_DCE_URI is required}
+      AZURE_DCR_IMMUTABLE_ID: ${AZURE_DCR_IMMUTABLE_ID:?AZURE_DCR_IMMUTABLE_ID is required}
 
-      # --- F5 Telemetry Streaming -> per-category Azure tables ------------
-      AZURE_TABLE_LTM: ${AZURE_TABLE_LTM:-F5Telemetry_LTM}
-      AZURE_TABLE_ASM: ${AZURE_TABLE_ASM:-F5Telemetry_ASM}
-      AZURE_TABLE_SYSTEM: ${AZURE_TABLE_SYSTEM:-F5Telemetry_System}
-      AZURE_TABLE_AFM: ${AZURE_TABLE_AFM:-F5Telemetry_AFM}
-      AZURE_TABLE_APM: ${AZURE_TABLE_APM:-F5Telemetry_APM}
-      AZURE_TABLE_AVR: ${AZURE_TABLE_AVR:-F5Telemetry_AVR}
-      # Fallback table for unclassified events.
-      AZURE_LOG_TABLE: ${AZURE_LOG_TABLE:-F5Telemetry_Event}
-      # Table for events that could not be processed (drained from the DLQ).
-      AZURE_TABLE_DLQ: ${AZURE_TABLE_DLQ:-F5Telemetry_DLQ}
+      # Output tunables (plugin defaults shown).
+      AZURE_FLUSH_INTERVAL: ${AZURE_FLUSH_INTERVAL:-5}
+      AZURE_RETRANSMISSION_TIME: ${AZURE_RETRANSMISSION_TIME:-10}
+      AZURE_COMPRESS_DATA: ${AZURE_COMPRESS_DATA:-true}
+
+      # --- F5 Telemetry Streaming -> per-category DCR streams -------------
+      # One DCR stream per custom table. Names follow the Custom-<Table>_CL
+      # convention emitted by the Terraform module; override only if you
+      # renamed the streams there.
+      AZURE_STREAM_LTM: ${AZURE_STREAM_LTM:-Custom-F5Telemetry_LTM_CL}
+      AZURE_STREAM_ASM: ${AZURE_STREAM_ASM:-Custom-F5Telemetry_ASM_CL}
+      AZURE_STREAM_SYSTEM: ${AZURE_STREAM_SYSTEM:-Custom-F5Telemetry_System_CL}
+      AZURE_STREAM_AFM: ${AZURE_STREAM_AFM:-Custom-F5Telemetry_AFM_CL}
+      AZURE_STREAM_APM: ${AZURE_STREAM_APM:-Custom-F5Telemetry_APM_CL}
+      AZURE_STREAM_AVR: ${AZURE_STREAM_AVR:-Custom-F5Telemetry_AVR_CL}
+      # Fallback stream for unclassified events.
+      AZURE_STREAM_EVENT: ${AZURE_STREAM_EVENT:-Custom-F5Telemetry_Event_CL}
+      # Stream for events that could not be processed (drained from the DLQ).
+      AZURE_STREAM_DLQ: ${AZURE_STREAM_DLQ:-Custom-F5Telemetry_DLQ_CL}
 
       # --- Debugging -----------------------------------------------------
       DEBUG_STDOUT: ${DEBUG_STDOUT:-false}

@@ -4,7 +4,7 @@
     {
       "type": 1,
       "content": {
-        "json": "# F5 ASM / WAF — Security Operations (SRE)\n\nSecurity-posture view of **F5 BIG-IP ASM (Advanced WAF)** events shipped by `logstash-azure-proxy` to the `F5Telemetry_ASM_CL` table.\n\n- **Enforcement** — blocked vs. alerted vs. passed\n- **Threats** — attack types, violations, signatures\n- **Targets & sources** — top policies, attackers, geographies\n\n> **Note on multi-value fields.** `attack_type`, `violations`, `sub_violations`, `sig_ids`, and `sig_names` are split into arrays by the pipeline and land in Azure as serialized JSON strings (e.g. `attack_type_s = '[\"Detection Evasion\",\"Path Traversal\"]'`). The queries below normalize both array and scalar forms before exploding them."
+        "json": "# F5 ASM / WAF — Security Operations (SRE)\n\nSecurity-posture view of **F5 BIG-IP ASM (Advanced WAF)** events shipped by `logstash-azure-proxy` to the `F5Telemetry_ASM_CL` table.\n\n- **Enforcement** — blocked vs. alerted vs. passed\n- **Threats** — attack types, violations, signatures\n- **Targets & sources** — top policies, attackers, geographies\n\n> **Note on multi-value fields.** `attack_type`, `violations`, `sub_violations`, `sig_ids`, and `sig_names` are split into arrays by the pipeline and land in Azure as serialized JSON strings (e.g. `attack_type = '[\"Detection Evasion\",\"Path Traversal\"]'`). The queries below normalize both array and scalar forms before exploding them."
       },
       "name": "title"
     },
@@ -42,7 +42,7 @@
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| summarize by f5_device_hostname_s\n| order by f5_device_hostname_s asc",
+            "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| summarize by f5_device_hostname\n| order by f5_device_hostname asc",
             "value": [ "*" ],
             "typeSettings": {
               "additionalResourceOptions": [ "value::all" ],
@@ -61,7 +61,7 @@
             "multiSelect": true,
             "quote": "'",
             "delimiter": ",",
-            "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| summarize by policy_name_s\n| order by policy_name_s asc",
+            "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| summarize by policy_name\n| order by policy_name asc",
             "value": [ "*" ],
             "typeSettings": {
               "additionalResourceOptions": [ "value::all" ],
@@ -82,7 +82,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize ['Total Events'] = count(),\n            Blocked = countif(request_status_s == 'blocked'),\n            Alerted = countif(request_status_s == 'alerted'),\n            ['Critical'] = countif(severity_s == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client_s)\n| extend ['Block Rate (%)'] = iif(['Total Events'] == 0, 0.0, round(100.0 * Blocked / ['Total Events'], 1))\n| project ['Total Events'], Blocked, ['Block Rate (%)'], ['Critical'], ['Unique Attackers']\n| evaluate narrow()",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| summarize ['Total Events'] = count(),\n            Blocked = countif(request_status == 'blocked'),\n            Alerted = countif(request_status == 'alerted'),\n            ['Critical'] = countif(severity == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client)\n| extend ['Block Rate (%)'] = iif(['Total Events'] == 0, 0.0, round(100.0 * Blocked / ['Total Events'], 1))\n| project ['Total Events'], Blocked, ['Block Rate (%)'], ['Critical'], ['Unique Attackers']\n| evaluate narrow()",
         "size": 3,
         "title": "WAF posture — summary",
         "queryType": 0,
@@ -104,7 +104,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count() by bin(TimeGenerated, 5m), Enforcement = request_status_s\n| render timechart",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count() by bin(TimeGenerated, 5m), Enforcement = request_status\n| render timechart",
         "size": 0,
         "title": "Enforcement over time (blocked / alerted / passed)",
         "queryType": 0,
@@ -118,7 +118,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count() by Severity = severity_s\n| render piechart",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count() by Severity = severity\n| render piechart",
         "size": 0,
         "title": "Events by severity",
         "queryType": 0,
@@ -132,7 +132,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(attack_type_s)\n| extend _arr = todynamic(attack_type_s)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(attack_type_s))\n| mv-expand AttackType = _arr to typeof(string)\n| where isnotempty(AttackType)\n| summarize Events = count() by AttackType\n| top 10 by Events desc\n| render barchart",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(attack_type)\n| extend _arr = todynamic(attack_type)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(attack_type))\n| mv-expand AttackType = _arr to typeof(string)\n| where isnotempty(AttackType)\n| summarize Events = count() by AttackType\n| top 10 by Events desc\n| render barchart",
         "size": 0,
         "title": "Top attack types",
         "queryType": 0,
@@ -146,7 +146,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(violations_s)\n| extend _arr = todynamic(violations_s)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(violations_s))\n| mv-expand Violation = _arr to typeof(string)\n| where isnotempty(Violation)\n| summarize Events = count() by Violation\n| top 10 by Events desc\n| render barchart",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(violations)\n| extend _arr = todynamic(violations)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(violations))\n| mv-expand Violation = _arr to typeof(string)\n| where isnotempty(Violation)\n| summarize Events = count() by Violation\n| top 10 by Events desc\n| render barchart",
         "size": 0,
         "title": "Top violations",
         "queryType": 0,
@@ -160,7 +160,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count(),\n            Blocked = countif(request_status_s == 'blocked'),\n            ['Max Rating'] = max(violation_rating_d),\n            ['Last Seen'] = max(TimeGenerated)\n  by ['Attacker IP'] = ip_client_s, Geo = geo_location_s\n| top 20 by Events desc",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count(),\n            Blocked = countif(request_status == 'blocked'),\n            ['Max Rating'] = max(violation_rating),\n            ['Last Seen'] = max(TimeGenerated)\n  by ['Attacker IP'] = ip_client, Geo = geo_location\n| top 20 by Events desc",
         "size": 0,
         "title": "Top attackers",
         "queryType": 0,
@@ -180,7 +180,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count(),\n            Blocked = countif(request_status_s == 'blocked'),\n            ['Critical'] = countif(severity_s == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client_s)\n  by ['WAF Policy'] = policy_name_s\n| extend ['Block Rate (%)'] = round(100.0 * Blocked / Events, 1)\n| top 20 by Events desc",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| summarize Events = count(),\n            Blocked = countif(request_status == 'blocked'),\n            ['Critical'] = countif(severity == 'Critical'),\n            ['Unique Attackers'] = dcount(ip_client)\n  by ['WAF Policy'] = policy_name\n| extend ['Block Rate (%)'] = round(100.0 * Blocked / Events, 1)\n| top 20 by Events desc",
         "size": 0,
         "title": "Activity by WAF policy",
         "queryType": 0,
@@ -199,7 +199,7 @@
       "type": 3,
       "content": {
         "version": "KqlItem/1.0",
-        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name_s in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(sig_names_s)\n| extend _arr = todynamic(sig_names_s)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(sig_names_s))\n| mv-expand Signature = _arr to typeof(string)\n| where isnotempty(Signature)\n| summarize Events = count(), ['Unique Attackers'] = dcount(ip_client_s), ['Last Seen'] = max(TimeGenerated) by Signature\n| top 20 by Events desc",
+        "query": "F5Telemetry_ASM_CL\n| where TimeGenerated {TimeRange}\n| where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))\n| where (policy_name in ({Policy})) or ('*' in ({Policy}))\n| where isnotempty(sig_names)\n| extend _arr = todynamic(sig_names)\n| extend _arr = iif(gettype(_arr) == 'array', _arr, pack_array(sig_names))\n| mv-expand Signature = _arr to typeof(string)\n| where isnotempty(Signature)\n| summarize Events = count(), ['Unique Attackers'] = dcount(ip_client), ['Last Seen'] = max(TimeGenerated) by Signature\n| top 20 by Events desc",
         "size": 0,
         "title": "Top triggered attack signatures",
         "queryType": 0,

@@ -14,8 +14,14 @@ It ships pre-configured with:
   `Generic_HTTP` Telemetry Consumer.
 - **Persistent Queues** (`queue.type: persisted`) for durable, on-disk
   buffering so events survive restarts and downstream Azure outages.
-- The **`microsoft-logstash-output-azure-loganalytics`** output plugin
-  pre-installed.
+- The **`microsoft-sentinel-log-analytics-logstash-output-plugin`** output
+  plugin pre-installed — Microsoft's modern **Logs Ingestion API** output
+  (Data Collection Rules + Microsoft Entra ID auth), the successor to the
+  retired HTTP Data Collector API.
+- A **[Terraform module](terraform/)** that provisions every Azure resource the
+  plugin needs (Data Collection Endpoint & Rule, typed custom tables, workspace,
+  and the ingesting service principal) — its outputs drop straight into the
+  container's environment.
 - An end-to-end **CI/CD pipeline** that builds the image and publishes it to the
   **GitHub Container Registry (GHCR)**.
 
@@ -107,27 +113,37 @@ for the full column reference.
 
 ### Destination tables
 
-Because the Microsoft Azure output plugin does **not** support dynamic
-(sprintf) table names, each category is routed by a conditional output to its
-own statically-named, env-overridable table. Azure appends the `_CL` suffix:
+Each category is routed by a conditional output to its own **Data Collection
+Rule (DCR) stream**, which the DCR maps to a dedicated, explicitly-typed custom
+table (`_CL`). The stream name per category is env-overridable:
 
-| Category | Env var | Default table (Azure table) |
-| -------- | ------- | --------------------------- |
-| LTM        | `AZURE_TABLE_LTM`    | `F5Telemetry_LTM` (`_CL`) |
-| ASM        | `AZURE_TABLE_ASM`    | `F5Telemetry_ASM` (`_CL`) |
-| systemInfo | `AZURE_TABLE_SYSTEM` | `F5Telemetry_System` (`_CL`) |
-| AFM        | `AZURE_TABLE_AFM`    | `F5Telemetry_AFM` (`_CL`) |
-| APM        | `AZURE_TABLE_APM`    | `F5Telemetry_APM` (`_CL`) |
-| AVR        | `AZURE_TABLE_AVR`    | `F5Telemetry_AVR` (`_CL`) |
-| _fallback_ | `AZURE_LOG_TABLE`    | `F5Telemetry_Event` (`_CL`) |
-| _dead-letter_ | `AZURE_TABLE_DLQ` | `F5Telemetry_DLQ` (`_CL`) |
+| Category | Env var | DCR stream → Azure table |
+| -------- | ------- | ------------------------ |
+| LTM        | `AZURE_STREAM_LTM`    | `Custom-F5Telemetry_LTM_CL` → `F5Telemetry_LTM_CL` |
+| ASM        | `AZURE_STREAM_ASM`    | `Custom-F5Telemetry_ASM_CL` → `F5Telemetry_ASM_CL` |
+| systemInfo | `AZURE_STREAM_SYSTEM` | `Custom-F5Telemetry_System_CL` → `F5Telemetry_System_CL` |
+| AFM        | `AZURE_STREAM_AFM`    | `Custom-F5Telemetry_AFM_CL` → `F5Telemetry_AFM_CL` |
+| APM        | `AZURE_STREAM_APM`    | `Custom-F5Telemetry_APM_CL` → `F5Telemetry_APM_CL` |
+| AVR        | `AZURE_STREAM_AVR`    | `Custom-F5Telemetry_AVR_CL` → `F5Telemetry_AVR_CL` |
+| _fallback_ | `AZURE_STREAM_EVENT`  | `Custom-F5Telemetry_Event_CL` → `F5Telemetry_Event_CL` |
+| _dead-letter_ | `AZURE_STREAM_DLQ` | `Custom-F5Telemetry_DLQ_CL` → `F5Telemetry_DLQ_CL` |
+
+The streams, tables, and their column schemas are all created by the
+[Terraform module](terraform/); the schemas mirror the fields the pipeline
+emits (see [`terraform/locals.tf`](terraform/locals.tf)). **A field the pipeline
+sends that the table schema doesn't declare is dropped at ingestion**, so extend
+the schema when you extend a module's parsing.
 
 ### Adding a new module (e.g. fully enabling AFM)
 
 1. Add/extend the `if [@metadata][f5_category] == "AFM"` block in
    [`50-modules-future.conf`](pipeline/50-modules-future.conf) with the field
    conversions and parsing you need.
-2. The classifier and the per-table output for AFM already exist — no other
+2. Declare any new promoted columns in the `AFM` list in
+   [`terraform/locals.tf`](terraform/locals.tf) and `terraform apply` — the DCR
+   stream and the custom table are updated together. (Undeclared fields are
+   dropped at ingestion.)
+3. The classifier and the per-stream output for AFM already exist — no other
    wiring is required.
 
 ## Configuring F5 BIG-IP
@@ -166,11 +182,19 @@ consumer pointing at this proxy:
 The provided [`docker-compose.yml`](docker-compose.yml) is production-ready with
 dynamic CPU/memory allocation and mounted volumes for the queue and config.
 
-1. Copy the env template and fill in your Azure workspace credentials:
+1. Provision the Azure resources with the [Terraform module](terraform/), then
+   copy the env template and fill in the five values it prints:
 
    ```bash
+   cd terraform/examples/complete
+   terraform init && terraform apply -var 'location=eastus2' -var 'resource_group_name=rg-f5tel'
+   terraform output container_env        # AZURE_TENANT_ID / CLIENT_ID / DCE_URI / DCR_IMMUTABLE_ID
+   terraform output -raw client_secret   # AZURE_CLIENT_SECRET (sensitive)
+   cd -
+
    cp .env.example .env
-   # edit .env -> set AZURE_WORKSPACE_ID and AZURE_WORKSPACE_KEY
+   # edit .env -> paste AZURE_TENANT_ID / AZURE_CLIENT_ID / AZURE_CLIENT_SECRET /
+   #              AZURE_DCE_URI / AZURE_DCR_IMMUTABLE_ID
    ```
 
 2. Start the stack:
@@ -205,13 +229,17 @@ dynamic CPU/memory allocation and mounted volumes for the queue and config.
 | `LS_DLQ_MAX_BYTES`   | `1gb`   | Max Dead Letter Queue size                |
 | `HTTP_INPUT_PORT`    | `8080`  | HTTP input listen port                    |
 | `API_PORT`           | `9600`  | Logstash monitoring API port              |
-| `AZURE_WORKSPACE_ID` | —       | **Required** — Log Analytics workspace ID |
-| `AZURE_WORKSPACE_KEY`| —       | **Required** — Log Analytics primary key  |
+| `AZURE_TENANT_ID`    | —       | **Required** — Entra ID tenant (Terraform output `tenant_id`) |
+| `AZURE_CLIENT_ID`    | —       | **Required** — service-principal client ID (`client_id`) |
+| `AZURE_CLIENT_SECRET`| —       | **Required** — service-principal secret (`client_secret`) |
+| `AZURE_DCE_URI`      | —       | **Required** — Data Collection Endpoint logs-ingestion URI (`data_collection_endpoint_uri`) |
+| `AZURE_DCR_IMMUTABLE_ID` | —   | **Required** — Data Collection Rule immutable ID (`dcr_immutable_id`) |
 | `AZURE_FLUSH_INTERVAL` | `5`   | Output flush interval (seconds)           |
-| `AZURE_MAX_ITEMS`    | `2000`  | Max items per Azure batch                 |
-| `AZURE_TABLE_LTM` / `_ASM` / `_SYSTEM` / `_AFM` / `_APM` / `_AVR` | `F5Telemetry_*` | Per-category destination tables |
-| `AZURE_LOG_TABLE`    | `F5Telemetry_Event` | Fallback table for unclassified events |
-| `AZURE_TABLE_DLQ`    | `F5Telemetry_DLQ`   | Table for un-processable events drained from the DLQ |
+| `AZURE_RETRANSMISSION_TIME` | `10` | Retry window on transient send failures (seconds) |
+| `AZURE_COMPRESS_DATA` | `true` | Gzip event batches before sending (recommended for high throughput) |
+| `AZURE_STREAM_LTM` / `_ASM` / `_SYSTEM` / `_AFM` / `_APM` / `_AVR` | `Custom-F5Telemetry_*_CL` | Per-category DCR stream names |
+| `AZURE_STREAM_EVENT` | `Custom-F5Telemetry_Event_CL` | Fallback stream for unclassified events |
+| `AZURE_STREAM_DLQ`   | `Custom-F5Telemetry_DLQ_CL`   | Stream for un-processable events drained from the DLQ |
 | `DEBUG_STDOUT`       | `false` | Echo every event to the container logs    |
 
 ### Volumes
@@ -301,8 +329,9 @@ directory provides an SRE-ready observability layer on top of it:
   IP, DLQ health, device saturation) to paste into the Logs blade or save as
   workspace functions.
 - **Docs** — [`azure/README.md`](azure/README.md) explains the Log Analytics
-  data model (the `_CL` / `_s` / `_d` suffixes, ASM array handling), how to
-  import/deploy everything, and per-alert runbooks for the on-call team.
+  data model (the `_CL` custom tables, explicitly-typed columns, ASM `dynamic`
+  array handling), how to import/deploy everything, and per-alert runbooks for
+  the on-call team.
 
 ## Building locally
 
@@ -312,9 +341,14 @@ docker build -t logstash-azure-proxy:dev --build-arg LOGSTASH_VERSION=8.11.4 .
 
 ## Notes
 
-- The plugin recommends disabling ECS on Logstash 8, so
-  `pipeline.ecs_compatibility: disabled` is set in `logstash.yml`.
-- For stronger security, prefer the Logstash keystore for
-  `AZURE_WORKSPACE_KEY` instead of passing it as a plain environment variable.
-- The Microsoft Azure output plugin appends the `_CL` suffix to custom log
-  tables automatically; configure table names **without** the suffix.
+- ECS is disabled on Logstash 8 (`pipeline.ecs_compatibility: disabled` in
+  `logstash.yml`) so the pipeline emits exactly the fields the DCR streams
+  declare.
+- For stronger security, prefer the Logstash keystore (or a container secret)
+  for `AZURE_CLIENT_SECRET` instead of a plaintext environment variable — or
+  skip the secret entirely with a **user-assigned managed identity** (set
+  `create_app_registration = false` in the Terraform module).
+- Custom tables are created with explicit, typed schemas by the Terraform
+  module — columns keep their **plain names** (no `_s`/`_d` suffixes). Rotate
+  the service-principal client secret before it expires
+  (`client_secret_expiration_hours`, default 1 year).

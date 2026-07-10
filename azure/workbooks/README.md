@@ -2,8 +2,8 @@
 
 SRE dashboards for the F5 data shipped by `logstash-azure-proxy`. Read the
 [Azure observability overview](../README.md) first for the data model (table
-`_CL` suffix, column type suffixes, ASM array handling) that every panel below
-relies on.
+`_CL` suffix, explicitly-typed suffix-free columns, ASM `dynamic` array handling)
+that every panel below relies on.
 
 | Workbook | File |
 | -------- | ---- |
@@ -65,7 +65,7 @@ Every workbook starts with a parameters bar:
   {TimeRange}`.
 - **Host / Policy / Virtual server** — multi-select dropdowns populated from the
   data, each with an **All** (`*`) option. Queries apply them defensively, e.g.
-  `where (f5_device_hostname_s in ({Hostname})) or ('*' in ({Hostname}))`, so
+  `where (f5_device_hostname in ({Hostname})) or ('*' in ({Hostname}))`, so
   "All" never filters anything out.
 
 KPI tiles are built with `evaluate narrow()` to unpivot a one-row summary into
@@ -82,7 +82,7 @@ host, virtual server.
 | ----- | ------ | ------------------------------ |
 | **Service health — golden signals** | Tiles | Requests, error rate %, 5xx count, p95 latency, throughput (MB) for the current selection. Your at-a-glance SLO snapshot. |
 | **Request rate by response class** | Time chart | Requests/5-min split into 2xx/3xx/4xx/5xx. A rising 5xx band or a sudden traffic cliff is the first thing to spot. |
-| **Response latency percentiles** | Time chart | p50/p95/p99 of `response_ms_d`. A widening p99–p50 gap signals tail-latency / saturation. |
+| **Response latency percentiles** | Time chart | p50/p95/p99 of `response_ms`. A widening p99–p50 gap signals tail-latency / saturation. |
 | **Error rate (4xx + 5xx, %)** | Time chart | Combined client+server error rate over time — the trend behind alert #6. |
 | **Top 10 virtual servers by traffic** | Bar | Where the load is; pairs with the VS filter to drill in. |
 | **Top failing URIs** | Table | URIs with the most ≥400 responses, with 5xx count and p95 — points you at the broken endpoint. |
@@ -124,17 +124,19 @@ The triage companion for the ingestion alerts. Filters: time, **Stale threshold
 
 ## Maintenance notes
 
-- **Custom table names:** if you overrode `AZURE_TABLE_*` in the proxy, update
-  the table names in each `.workbook` before importing.
-- **Device saturation:** the proxy now promotes `f5_device_cpu_d`,
-  `f5_device_memory_d`, `f5_device_tmm_cpu_d`, and `f5_device_tmm_memory_d` as
+- **Custom table names:** if you changed `table_prefix` in the Terraform module,
+  update the table names in each `.workbook` before importing.
+- **Device saturation:** the proxy now promotes `f5_device_cpu`,
+  `f5_device_memory`, `f5_device_tmm_cpu`, and `f5_device_tmm_memory` as
   numeric columns, so you can add a CPU/memory tile or trend to the **BIG-IP
   fleet** panel without parsing JSON. Use
   [`../queries/device-saturation.kql`](../queries/device-saturation.kql) as the
   panel query; it backs alert #10.
-- **Other System metrics:** virtualServers/pools/profiles still live inside the
-  serialized `system_s` (etc.) columns; `extend s = parse_json(system_s)` then
-  reference `s.virtualServers`, … to extend the health workbook.
+- **Other System metrics:** virtualServers/pools/profiles live in the `dynamic`
+  columns `system`, `virtualServers`, and `pools`; reference them directly (e.g.
+  `system.tmmTraffic`, `virtualServers`) — no `parse_json` needed — to extend the
+  health workbook. Add more `dynamic` columns in
+  [`../../terraform/locals.tf`](../../terraform/locals.tf) to surface deeper keys.
 - **AFM/APM/AVR:** these tables are routed today but only lightly parsed
   ([`50-modules-future.conf`](../../pipeline/50-modules-future.conf)). The
   health workbook already includes them via `union isfuzzy=true`; build

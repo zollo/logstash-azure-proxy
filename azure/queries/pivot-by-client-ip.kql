@@ -1,5 +1,5 @@
 // Cross-module pivot: everything a single source IP did, across LTM / ASM / AFM.
-// This is the payoff of the normalized f5_src_ip_s column — one key works in
+// This is the payoff of the normalized f5_src_ip column — one key works in
 // every table, no per-module field-name juggling. Set targetIp before running.
 let targetIp = "198.51.100.23";
 let lookback = 24h;
@@ -8,17 +8,17 @@ union isfuzzy=true
     (F5Telemetry_ASM_CL),
     (F5Telemetry_AFM_CL)
 | where TimeGenerated > ago(lookback)
-| where f5_src_ip_s == targetIp
+| where f5_src_ip == targetIp
 | project
     TimeGenerated,
-    Module    = f5_telemetry_category_s,
-    Device    = f5_device_hostname_s,
-    DestIp    = f5_dest_ip_s,
-    Method    = f5_http_method_s,
-    Status    = f5_response_code_d,
-    Country   = f5_src_country_s,
+    Module    = f5_telemetry_category,
+    Device    = f5_device_hostname,
+    DestIp    = f5_dest_ip,
+    Method    = f5_http_method,
+    Status    = f5_response_code,
+    Country   = f5_src_country,
     // module-specific context, whichever is present
-    Uri       = column_ifexists("http_uri_s", ""),
-    Policy    = column_ifexists("policy_name_s", ""),
-    AsmStatus = column_ifexists("request_status_s", "")
+    Uri       = column_ifexists("http_uri", ""),
+    Policy    = column_ifexists("policy_name", ""),
+    AsmStatus = column_ifexists("request_status", "")
 | order by TimeGenerated desc
