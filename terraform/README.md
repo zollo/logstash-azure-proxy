@@ -115,6 +115,7 @@ creates, so you only need to set them if you changed `table_prefix`.
 | `resource_group_name` | string | — | Resource group to deploy into (**required**). |
 | `create_resource_group` | bool | `true` | Create the RG or use existing. |
 | `create_workspace` | bool | `true` | Create a workspace or attach to `existing_workspace_id`. |
+| `dce_public_network_access_enabled` | bool | `true` | Allow public-network ingestion to the DCE (set `false` for Private Link). |
 | `existing_workspace_id` | string | `null` | Workspace resource ID when `create_workspace = false`. |
 | `workspace_sku` | string | `PerGB2018` | SKU for a new workspace. |
 | `workspace_retention_in_days` | number | `30` | Default retention for a new workspace. |

@@ -53,6 +53,16 @@ variable "existing_workspace_id" {
   default     = null
 }
 
+variable "dce_public_network_access_enabled" {
+  description = <<-EOT
+    Allow ingestion to the Data Collection Endpoint over public networks. Set to
+    false and attach a Private Link scope (AMPLS) for private-only ingestion —
+    the container must then reach the DCE over the private endpoint.
+  EOT
+  type        = bool
+  default     = true
+}
+
 variable "workspace_sku" {
   description = "Pricing SKU for a newly-created workspace."
   type        = string

@@ -11,7 +11,7 @@ resource "azurerm_monitor_data_collection_endpoint" "this" {
   name                          = "${var.name_prefix}-dce"
   resource_group_name           = local.resource_group_name
   location                      = local.location
-  public_network_access_enabled = true
+  public_network_access_enabled = var.dce_public_network_access_enabled
   description                   = "Logs-ingestion endpoint for F5 telemetry from logstash-azure-proxy."
   tags                          = var.tags
 }

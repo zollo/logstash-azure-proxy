@@ -52,8 +52,9 @@ locals {
       { name = "response_code", type = "int" },
       { name = "response_code_class", type = "string", description = "Status bucket 2xx/3xx/4xx/5xx, derived in 20-ltm.conf." },
       { name = "response_ms", type = "int" },
-      { name = "response_size", type = "int" },
-      { name = "request_size", type = "int" },
+      # Byte counts can exceed 32-bit range on large transfers -> long.
+      { name = "response_size", type = "long" },
+      { name = "request_size", type = "long" },
     ]
 
     ASM = [
